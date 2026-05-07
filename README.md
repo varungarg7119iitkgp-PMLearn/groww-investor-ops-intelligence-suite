@@ -2,12 +2,12 @@
 
 **Status:** Under construction — this repository and the linked Vercel deployment are submission placeholders. Full integration (single dashboard, MCP HITL, eval runs) will land in the same repo and reuse the same production URL after the capstone build-out.
 
-## Submission links (fill after you create remote + deploy)
+## Submission links
 
 | Deliverable | Link |
 | ----------- | ---- |
-| **GitHub repository** | _Create a repo (suggested name: `groww-investor-ops-intelligence-suite`), push this folder, paste URL here._ |
-| **Deployed application (Vercel)** | _Import the GitHub repo in Vercel, deploy from repo root, paste production URL here._ |
+| **GitHub repository** | https://github.com/varungarg7119iitkgp-PMLearn/groww-investor-ops-intelligence-suite |
+| **Deployed application (Vercel)** | https://groww-investor-ops-intelligence-sui.vercel.app |
 | **Evals report** | [`Evals_Report.md`](./Evals_Report.md) — golden dataset, adversarial tests, scores (detailed template; run metrics after integration). |
 | **Source manifest** | This file, section **Source Manifest** below (30+ official URLs; extend as ingestion expands). |
 
