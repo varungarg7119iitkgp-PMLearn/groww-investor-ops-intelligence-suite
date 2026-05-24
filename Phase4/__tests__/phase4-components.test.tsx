@@ -627,14 +627,24 @@ describe("MOCK_TICKER_DATA integrity", () => {
     expect(categories.has("commodity")).toBe(true);
   });
 
-  it("has exactly 4 debt funds", () => {
+  it("has exactly 5 debt funds (Phase 7 spec: 5 debt + 5 commodity + 5 hybrid + 5 equity)", () => {
     const debt = MOCK_TICKER_DATA.filter((i) => i.category === "debt");
-    expect(debt).toHaveLength(4);
+    expect(debt).toHaveLength(5);
   });
 
-  it("has at least 3 commodity funds (Silver ETFs)", () => {
+  it("has exactly 5 commodity funds (Silver ETFs)", () => {
     const commodity = MOCK_TICKER_DATA.filter((i) => i.category === "commodity");
-    expect(commodity.length).toBeGreaterThanOrEqual(3);
+    expect(commodity).toHaveLength(5);
+  });
+
+  it("has exactly 5 hybrid funds", () => {
+    const hybrid = MOCK_TICKER_DATA.filter((i) => i.category === "hybrid");
+    expect(hybrid).toHaveLength(5);
+  });
+
+  it("has exactly 5 equity funds", () => {
+    const equity = MOCK_TICKER_DATA.filter((i) => i.category === "equity");
+    expect(equity).toHaveLength(5);
   });
 
   it("all symbols are uppercase and non-empty", () => {

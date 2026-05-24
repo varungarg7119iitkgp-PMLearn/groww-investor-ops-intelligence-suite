@@ -19,7 +19,7 @@
 
 "use client";
 
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AgentVisualState } from "@/types";
 
@@ -199,17 +199,24 @@ function PlasmaRipples({ cx, cy, orbRadius, state }: PlasmaRipplesProps) {
   // Scale down ripple opacity in thinking state (internal focus look)
   const opacityMult = isThink ? 0.3 : 1.0;
 
+  /* Defer ripple mount until after the client has hydrated.
+   * Framer Motion animates the SVG `r` attribute, which can race with
+   * SSR hydration on first paint (ripples invisible until reload).
+   * Mounting on a useEffect tick guarantees clean animation start. */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   return (
     <g aria-hidden="true" data-testid="plasma-ripples">
-      {RIPPLE_PARAMS.map((p, i) => (
+      {mounted && RIPPLE_PARAMS.map((p, i) => (
         <motion.circle
           key={`ripple-${i}`}
           cx={cx}
           cy={cy}
-          r={orbRadius * p.startScale}
           fill="none"
           stroke="var(--investor)"
           strokeWidth={p.strokeW}
+          initial={{ opacity: p.opacityPeak * opacityMult, r: orbRadius * p.startScale }}
           animate={{
             r:       [orbRadius * p.startScale, orbRadius * p.endScale],
             opacity: [p.opacityPeak * opacityMult, 0],

@@ -15,31 +15,44 @@
 
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import type { TickerItem } from "@/types";
+import { getTickerData } from "@/lib/data";
 
-/* ── Mock data: 20 funds from M1 fund universe ─────────────── */
+/* ── Fallback / SSR seed data ──────────────────────────────────
+ * 20 funds mirroring the seeded Supabase `funds` table (5 debt + 5
+ * commodity + 5 hybrid + 5 equity). Kept for two reasons:
+ *   1. Server-side rendering needs an instantly available list so the
+ *      ticker is not blank on first paint.
+ *   2. Unit tests do not have Supabase access — they assert against
+ *      this fixture.
+ * Updated by `useEffect` once `getTickerData()` returns live NAVs.
+ */
 export const MOCK_TICKER_DATA: TickerItem[] = [
-  { fundId: "hdfc-hyb",   symbol: "HDFC-HYB",   name: "HDFC Hybrid Equity",             nav: 98.23,  navChange: 1.45,   navChangePercent: 1.50,  category: "hybrid",    isPositive: true  },
-  { fundId: "icici-psu",  symbol: "ICICI-PSU",  name: "ICICI Pru PSU Equity",           nav: 45.67,  navChange: -0.34,  navChangePercent: -0.74, category: "equity",    isPositive: false },
-  { fundId: "sbi-psu",    symbol: "SBI-PSU",    name: "SBI PSU Direct",                 nav: 32.10,  navChange: 2.10,   navChangePercent: 7.00,  category: "equity",    isPositive: true  },
-  { fundId: "absl-cr",    symbol: "ABSL-CR",    name: "Aditya Birla Credit Risk",       nav: 15.23,  navChange: 0.12,   navChangePercent: 0.79,  category: "debt",      isPositive: true  },
-  { fundId: "nip-multi",  symbol: "NIP-MULTI",  name: "Nippon Multi Asset",             nav: 22.45,  navChange: -0.56,  navChangePercent: -2.43, category: "hybrid",    isPositive: false },
-  { fundId: "dsp-cr",     symbol: "DSP-CR",     name: "DSP Credit Risk",                nav: 18.90,  navChange: 0.78,   navChangePercent: 4.30,  category: "debt",      isPositive: true  },
-  { fundId: "hdfc-silv",  symbol: "HDFC-SILV",  name: "HDFC Silver ETF FoF",            nav: 25.60,  navChange: 1.20,   navChangePercent: 4.92,  category: "commodity", isPositive: true  },
-  { fundId: "icici-silv", symbol: "ICICI-SILV", name: "ICICI Pru Silver ETF FoF",       nav: 24.89,  navChange: 0.89,   navChangePercent: 3.71,  category: "commodity", isPositive: true  },
-  { fundId: "sbi-child",  symbol: "SBI-CHILD",  name: "SBI Magnum Children's Benefit",  nav: 108.45, navChange: -1.23,  navChangePercent: -1.12, category: "hybrid",    isPositive: false },
-  { fundId: "absl-med",   symbol: "ABSL-MED",   name: "Aditya Birla Medium Term",       nav: 42.56,  navChange: 0.34,   navChangePercent: 0.80,  category: "debt",      isPositive: true  },
-  { fundId: "hdfc-arb",   symbol: "HDFC-ARB",   name: "HDFC Income Plus Arb FoF",       nav: 12.78,  navChange: 0.05,   navChangePercent: 0.39,  category: "hybrid",    isPositive: true  },
-  { fundId: "icici-ret",  symbol: "ICICI-RET",  name: "ICICI Pru Retirement Hybrid",    nav: 56.34,  navChange: 1.56,   navChangePercent: 2.84,  category: "hybrid",    isPositive: true  },
-  { fundId: "absl-psu",   symbol: "ABSL-PSU",   name: "Aditya Birla PSU Equity",        nav: 38.90,  navChange: -0.90,  navChangePercent: -2.26, category: "equity",    isPositive: false },
-  { fundId: "nip-silv",   symbol: "NIP-SILV",   name: "Nippon Silver ETF FoF",          nav: 26.12,  navChange: 0.92,   navChangePercent: 3.65,  category: "commodity", isPositive: true  },
-  { fundId: "absl-silv",  symbol: "ABSL-SILV",  name: "Aditya Birla Silver ETF FoF",    nav: 25.10,  navChange: 0.75,   navChangePercent: 3.08,  category: "commodity", isPositive: true  },
-  { fundId: "axis-silv",  symbol: "AXIS-SILV",  name: "Axis Silver FoF",                nav: 23.45,  navChange: -0.23,  navChangePercent: -0.97, category: "commodity", isPositive: false },
-  { fundId: "inv-psu",    symbol: "INV-PSU",    name: "Invesco PSU Equity",             nav: 44.23,  navChange: 1.89,   navChangePercent: 4.46,  category: "equity",    isPositive: true  },
-  { fundId: "mot-bse",    symbol: "MOT-BSE",    name: "Motilal BSE Enhanced Value",     nav: 78.34,  navChange: 2.45,   navChangePercent: 3.22,  category: "equity",    isPositive: true  },
-  { fundId: "qnt-multi",  symbol: "QNT-MULTI",  name: "Quant Multi Asset",              nav: 92.67,  navChange: -1.45,  navChangePercent: -1.54, category: "hybrid",    isPositive: false },
-  { fundId: "hsbc-cr",    symbol: "HSBC-CR",    name: "HSBC Credit Risk",               nav: 16.78,  navChange: 0.23,   navChangePercent: 1.39,  category: "debt",      isPositive: true  },
+  /* DEBT (5) */
+  { fundId: "absl-cr",    symbol: "ABSL-CR",    name: "Aditya Birla SL Credit Risk Fund",        nav: 15.23,  navChange: 0.12,   navChangePercent: 0.79,  category: "debt",      isPositive: true  },
+  { fundId: "absl-med",   symbol: "ABSL-MED",   name: "Aditya Birla SL Medium Term Plan",        nav: 42.56,  navChange: 0.34,   navChangePercent: 0.80,  category: "debt",      isPositive: true  },
+  { fundId: "dsp-cr",     symbol: "DSP-CR",     name: "DSP Credit Risk Fund",                    nav: 18.90,  navChange: 0.78,   navChangePercent: 4.30,  category: "debt",      isPositive: true  },
+  { fundId: "hsbc-cr",    symbol: "HSBC-CR",    name: "HSBC Credit Risk Fund",                   nav: 16.78,  navChange: 0.23,   navChangePercent: 1.39,  category: "debt",      isPositive: true  },
+  { fundId: "sbi-med",    symbol: "SBI-MED",    name: "SBI Magnum Medium Duration Fund",         nav: 48.12,  navChange: 0.15,   navChangePercent: 0.31,  category: "debt",      isPositive: true  },
+  /* COMMODITY (5) */
+  { fundId: "absl-silv",  symbol: "ABSL-SILV",  name: "Aditya Birla SL Silver ETF FoF",          nav: 25.10,  navChange: 0.75,   navChangePercent: 3.08,  category: "commodity", isPositive: true  },
+  { fundId: "axis-silv",  symbol: "AXIS-SILV",  name: "Axis Silver FoF",                         nav: 23.45,  navChange: -0.23,  navChangePercent: -0.97, category: "commodity", isPositive: false },
+  { fundId: "hdfc-silv",  symbol: "HDFC-SILV",  name: "HDFC Silver ETF FoF",                     nav: 25.60,  navChange: 1.20,   navChangePercent: 4.92,  category: "commodity", isPositive: true  },
+  { fundId: "icici-silv", symbol: "ICICI-SILV", name: "ICICI Pru Silver ETF FoF",                nav: 24.89,  navChange: 0.89,   navChangePercent: 3.71,  category: "commodity", isPositive: true  },
+  { fundId: "nip-silv",   symbol: "NIP-SILV",   name: "Nippon India Silver ETF FoF",             nav: 26.12,  navChange: 0.92,   navChangePercent: 3.65,  category: "commodity", isPositive: true  },
+  /* HYBRID (5) */
+  { fundId: "hdfc-arb",   symbol: "HDFC-ARB",   name: "HDFC Income Plus Arbitrage Active FoF",   nav: 12.78,  navChange: 0.05,   navChangePercent: 0.39,  category: "hybrid",    isPositive: true  },
+  { fundId: "hdfc-hyb",   symbol: "HDFC-HYB",   name: "HDFC Hybrid Equity Fund",                 nav: 98.23,  navChange: 1.45,   navChangePercent: 1.50,  category: "hybrid",    isPositive: true  },
+  { fundId: "icici-ret",  symbol: "ICICI-RET",  name: "ICICI Pru Retirement Fund Hybrid",        nav: 56.34,  navChange: 1.56,   navChangePercent: 2.84,  category: "hybrid",    isPositive: true  },
+  { fundId: "nip-multi",  symbol: "NIP-MULTI",  name: "Nippon India Multi Asset Fund",           nav: 22.45,  navChange: -0.56,  navChangePercent: -2.43, category: "hybrid",    isPositive: false },
+  { fundId: "sbi-child",  symbol: "SBI-CHILD",  name: "SBI Magnum Children's Benefit Fund",      nav: 108.45, navChange: -1.23,  navChangePercent: -1.12, category: "hybrid",    isPositive: false },
+  /* EQUITY (5) */
+  { fundId: "absl-psu",   symbol: "ABSL-PSU",   name: "Aditya Birla SL PSU Equity Fund",         nav: 38.90,  navChange: -0.90,  navChangePercent: -2.26, category: "equity",    isPositive: false },
+  { fundId: "icici-psu",  symbol: "ICICI-PSU",  name: "ICICI Pru PSU Equity Fund",               nav: 45.67,  navChange: -0.34,  navChangePercent: -0.74, category: "equity",    isPositive: false },
+  { fundId: "inv-psu",    symbol: "INV-PSU",    name: "Invesco India PSU Equity Fund",           nav: 44.23,  navChange: 1.89,   navChangePercent: 4.46,  category: "equity",    isPositive: true  },
+  { fundId: "mot-bse",    symbol: "MOT-BSE",    name: "Motilal Oswal BSE Enhanced Value Index",  nav: 78.34,  navChange: 2.45,   navChangePercent: 3.22,  category: "equity",    isPositive: true  },
+  { fundId: "sbi-psu",    symbol: "SBI-PSU",    name: "SBI PSU Fund Direct Growth",              nav: 32.10,  navChange: 2.10,   navChangePercent: 7.00,  category: "equity",    isPositive: true  },
 ];
 
 /* ── Single ticker item ─────────────────────────────────────── */
@@ -103,15 +116,39 @@ interface MarqueeTickerProps {
   onItemClick?: (fundName: string) => void;
   /** override animation duration (seconds). Default 60. */
   animationDuration?: number;
+  /**
+   * Disable live Supabase fetch (Phase 7). Mock data only.
+   * Tests pass this true to keep behavior deterministic.
+   */
+  disableLiveFetch?: boolean;
 }
 
 export function MarqueeTicker({
-  items = MOCK_TICKER_DATA,
+  items,
   onItemClick,
   animationDuration = 60,
+  disableLiveFetch = false,
 }: MarqueeTickerProps) {
+  /* Initial state: caller-supplied items, else local fixture.
+   * useEffect below upgrades to live Supabase data once mounted. */
+  const [tickerItems, setTickerItems] = useState<TickerItem[]>(items ?? MOCK_TICKER_DATA);
+
+  useEffect(() => {
+    if (disableLiveFetch || items) return; // explicit caller override wins
+    let cancelled = false;
+    (async () => {
+      const res = await getTickerData();
+      if (cancelled) return;
+      if (res.data && res.data.length > 0) {
+        setTickerItems(res.data);
+      }
+      /* Silent fallback on error — fixture data already on screen. */
+    })();
+    return () => { cancelled = true; };
+  }, [disableLiveFetch, items]);
+
   /* duplicate for seamless loop */
-  const doubled = [...items, ...items];
+  const doubled = [...tickerItems, ...tickerItems];
 
   return (
     <div
