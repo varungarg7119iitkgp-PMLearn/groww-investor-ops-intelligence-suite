@@ -1,0 +1,100 @@
+{
+  "version": "v1",
+  "lastUpdated": "2026-05-24",
+  "topics": {
+    "kyc": [
+      {
+        "topic": "kyc",
+        "title": "KYC verification: documents required",
+        "content": "For mutual fund KYC at Groww you need: (1) PAN card front photo, (2) Aadhaar front and back, (3) a self-photo (selfie) for in-person verification, and (4) cancelled cheque or bank statement with IFSC visible. Address proof is auto-fetched from Aadhaar. KYC is processed within 1-3 working days for first-time investors.",
+        "source": "https://groww.in/p/mutual-funds-kyc",
+        "lastUpdated": "2026-04-12"
+      },
+      {
+        "topic": "kyc",
+        "title": "Re-KYC and CKYC status check",
+        "content": "Existing investors with CKYC status 'Registered' do not need to re-submit documents. If KRA returns 'On Hold', upload a fresh selfie via the Groww app under Profile → KYC. Re-KYC typically completes in 24 hours after upload.",
+        "source": "https://groww.in/p/ckyc-re-kyc",
+        "lastUpdated": "2026-03-08"
+      }
+    ],
+    "sip": [
+      {
+        "topic": "sip",
+        "title": "How to start a SIP",
+        "content": "To start a SIP on Groww: search the fund, tap 'Invest', choose SIP, pick amount (min ₹100/month for most funds), pick SIP date (1, 5, 10, 15, 20, or 25), set duration (or 'Until Cancelled'), and mandate via UPI or NACH. UPI mandate activates instantly; NACH takes 5-15 business days.",
+        "source": "https://groww.in/p/start-sip",
+        "lastUpdated": "2026-05-02"
+      },
+      {
+        "topic": "sip",
+        "title": "Pause / stop / modify SIP",
+        "content": "An active SIP can be paused for up to 3 months from the dashboard. Pausing means no auto-debit during the pause window. To stop permanently, choose 'Stop SIP' — the existing units stay invested. To change SIP amount you must stop the current SIP and start a fresh one at the new amount.",
+        "source": "https://groww.in/p/manage-sip",
+        "lastUpdated": "2026-02-14"
+      },
+      {
+        "topic": "sip",
+        "title": "SIP first-installment timing",
+        "content": "If your SIP is set for the 5th and you create the SIP on the 4th, the first installment debits on the 5th of the SAME month only if the mandate is active. UPI mandates approved before 23:59 hrs on the previous day qualify; NACH mandates need at least 7 business days lead time.",
+        "source": "https://groww.in/p/sip-first-debit",
+        "lastUpdated": "2026-01-20"
+      }
+    ],
+    "statements": [
+      {
+        "topic": "statements",
+        "title": "Download account statement (CAS)",
+        "content": "Groww supports CAMS / Karvy CAS download under Statements → CAS. You can request 'this financial year', 'last financial year', or a custom date range. CAS is delivered to your registered email as a password-protected PDF (password = PAN in capitals, e.g. ABCDE1234F).",
+        "source": "https://groww.in/p/download-cas",
+        "lastUpdated": "2026-04-30"
+      },
+      {
+        "topic": "statements",
+        "title": "Capital gains statement for tax filing",
+        "content": "For ITR filing, download the Capital Gains Statement under Statements → Capital Gains. This shows realized STCG and LTCG split by fund, with indexation cost where applicable. Statements for the financial year are usually available from April 5 onwards.",
+        "source": "https://groww.in/p/capital-gains-statement",
+        "lastUpdated": "2026-04-08"
+      }
+    ],
+    "withdrawals": [
+      {
+        "topic": "withdrawals",
+        "title": "Redeem mutual fund units",
+        "content": "To redeem: open the fund holding → tap 'Redeem' → choose units or amount → review exit load (if any) → confirm. Redemption proceeds credit to your registered bank in T+1 (liquid/overnight), T+2 (debt), or T+3 (equity) working days.",
+        "source": "https://groww.in/p/redeem-units",
+        "lastUpdated": "2026-05-06"
+      },
+      {
+        "topic": "withdrawals",
+        "title": "Exit load and tax on withdrawals",
+        "content": "Exit load varies by fund (typically 1% if redeemed before 1 year for equity funds; debt funds may have 7-day or 30-day exit windows). Tax: equity LTCG is 12.5% above ₹1.25 lakh per year after 1 year; STCG is 20%. For debt funds (purchased after April 2023), gains are taxed at slab rate regardless of holding period.",
+        "source": "https://groww.in/p/mutual-fund-taxation",
+        "lastUpdated": "2026-04-22"
+      }
+    ],
+    "account_changes": [
+      {
+        "topic": "account_changes",
+        "title": "Update email or mobile number",
+        "content": "Email and mobile updates can be done in-app under Profile → Personal Details. Mobile change requires OTP on both the old and new number. Email change confirms via a magic link sent to the new email. Both changes propagate to your KYC record within 24 hours.",
+        "source": "https://groww.in/p/update-contact",
+        "lastUpdated": "2026-03-15"
+      },
+      {
+        "topic": "account_changes",
+        "title": "Update or add nominee",
+        "content": "Nominee changes for mutual fund holdings happen via the standalone 'Update Nominee' flow under Profile → Nominees. You can name up to 3 nominees with percentage allocation summing to 100%. A digital signature (Aadhaar OTP) is required.",
+        "source": "https://groww.in/p/update-nominee",
+        "lastUpdated": "2026-02-28"
+      },
+      {
+        "topic": "account_changes",
+        "title": "Bank account update",
+        "content": "To update or add a bank account: Profile → Bank Accounts → Add. Bank name + account number + IFSC are validated via a ₹1 penny-drop. The new bank becomes the default for SIP debits and redemption credits after a 24-hour cooling period.",
+        "source": "https://groww.in/p/update-bank",
+        "lastUpdated": "2026-05-10"
+      }
+    ]
+  }
+}

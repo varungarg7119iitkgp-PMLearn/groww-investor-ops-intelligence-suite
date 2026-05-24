@@ -93,12 +93,15 @@ interface MessageRowProps {
   /** bullets extracted from content for structured response */
   bullets?: string[];
   citations?: Citation[];
+  /** ISO-8601 of when the underlying sources were last refreshed (Phase 8+) */
+  lastUpdated?: string;
 }
 
 const MessageRow = memo(function MessageRow({
   message,
   bullets,
   citations = [],
+  lastUpdated,
 }: MessageRowProps) {
   const isAgent  = message.role === "assistant";
   const isUser   = message.role === "user";
@@ -220,6 +223,7 @@ const MessageRow = memo(function MessageRow({
             <BulletResponse
               bullets={bullets}
               citations={citations.length > 0 ? citations : (message.citations ?? [])}
+              lastUpdated={lastUpdated}
             />
           </>
         )}
@@ -311,6 +315,8 @@ interface ChatTerminalProps {
   bulletsByMessageId?: Record<string, string[]>;
   /** Citations keyed by message ID */
   citationsByMessageId?: Record<string, Citation[]>;
+  /** ISO-8601 last-updated timestamp keyed by message ID (Phase 8+ Smart-Sync) */
+  lastUpdatedByMessageId?: Record<string, string>;
 }
 
 /* ── Main ChatTerminal component ────────────────────────────── */
@@ -319,6 +325,7 @@ export function ChatTerminal({
   isTyping            = false,
   bulletsByMessageId  = {},
   citationsByMessageId = {},
+  lastUpdatedByMessageId = {},
 }: ChatTerminalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -422,6 +429,7 @@ export function ChatTerminal({
                   message={msg}
                   bullets={bulletsByMessageId[msg.id]}
                   citations={citationsByMessageId[msg.id]}
+                  lastUpdated={lastUpdatedByMessageId[msg.id]}
                 />
               ))}
               {isTyping && <TypingIndicator key="typing-indicator" />}

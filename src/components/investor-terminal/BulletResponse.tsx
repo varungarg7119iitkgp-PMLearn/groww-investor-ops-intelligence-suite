@@ -23,12 +23,33 @@ interface BulletResponseProps {
   citations?: Citation[];
   /** If true, runs typewriter animation on each bullet */
   animate?: boolean;
+  /**
+   * ISO-8601 timestamp displayed as "Last updated from sources: HH:MM".
+   * Surfaced when the response comes from `/api/chat` (Phase 8+).
+   */
+  lastUpdated?: string;
+}
+
+/* Deterministic HH:MM formatter — matches ChatTerminal's `formatHudTime`.
+ * Avoids `toLocaleTimeString` which produces locale-dependent output
+ * and is therefore a hydration mismatch risk. */
+function formatHudTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  } catch {
+    return iso;
+  }
 }
 
 export function BulletResponse({
   bullets,
   citations = [],
   animate = true,
+  lastUpdated,
 }: BulletResponseProps) {
   if (!bullets.length) return null;
 
@@ -107,6 +128,26 @@ export function BulletResponse({
 
       {/* Citation tags */}
       <CitationTagList citations={citations} />
+
+      {/* Last-updated timestamp (Phase 8 — Smart-Sync KB grounding) */}
+      {lastUpdated && (
+        <div
+          data-testid="last-updated"
+          style={{
+            marginTop:     "10px",
+            paddingTop:    "8px",
+            borderTop:     "1px dashed rgba(0, 229, 255, 0.12)",
+            fontFamily:    "var(--font-hud)",
+            fontSize:      "10px",
+            color:         "var(--text-tertiary)",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            opacity:       0.7,
+          }}
+        >
+          Last updated from sources: {formatHudTime(lastUpdated)}
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -287,6 +287,33 @@ export async function getLatestPulse(): Promise<ApiResponse<WeeklyPulse | null>>
 }
 
 /**
+ * Phase 11 — Pulse → Voice greeting bridge (Pillar B → C).
+ * Returns the **top theme label** from the latest weekly_pulse, or
+ * `null` if no pulse exists yet. The voice agent injects this into
+ * its greeting prompt so the conversation can reference what
+ * investors are buzzing about this week.
+ */
+export async function getLatestPulseTheme(): Promise<ApiResponse<string | null>> {
+  try {
+    const pulse = await getLatestPulse();
+    if (pulse.error || !pulse.data) return apiSuccess<string | null>(null);
+    /* WeeklyPulse.themes is sorted by sentiment / count upstream;
+     * we trust the order and pick [0]. */
+    const top = pulse.data.themes?.[0];
+    if (!top) return apiSuccess<string | null>(null);
+    const label =
+      typeof top === "string"
+        ? top
+        : (top as { label?: string; name?: string }).label ??
+          (top as { label?: string; name?: string }).name ??
+          null;
+    return apiSuccess<string | null>(label);
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in getLatestPulseTheme");
+  }
+}
+
+/**
  * Returns ticker-ready data — 20 fund rows formatted for the MarqueeTicker.
  * Computes `isPositive` from `navChange` and trims to the fields the ticker needs.
  */

@@ -33,6 +33,27 @@ import {
 import { ScanningLine, OpsAccessButton } from "@/components/shared";
 import { createChatMessage } from "@/types";
 import type { ChatMessage, AgentVisualState, Citation } from "@/types";
+import { useVoiceInteraction } from "@/hooks/useVoiceInteraction";
+import { useConversation } from "@/hooks/useConversation";
+
+/** Response envelope from POST /api/chat (Phase 8). */
+interface ChatApiResponse {
+  answer: {
+    summary: string;
+    bullets: string[];
+    citations: Citation[];
+    inScope: boolean;
+    complianceFlag: "ok" | "out_of_scope" | "advice_block" | "pii_block";
+  };
+  meta: {
+    lastUpdated: string;
+    retrievedSources: number;
+    latencyMs: number;
+    model: string;
+    feeExplainerInvoked: boolean;
+    fundsIdentified: string[];
+  };
+}
 
 /* ── Sample Citations ────────────────────────────────────────── */
 const SAMPLE_CITATIONS: Citation[] = [
@@ -118,10 +139,20 @@ const { messages: INIT_MESSAGES, bulletsByMessageId: INIT_BULLETS, citationsByMe
 
 const ORB_CYCLE: AgentVisualState[] = ["IDLE", "LISTENING", "THINKING", "SPEAKING"];
 
+/** Best-effort JSON parser — returns `undefined` for non-JSON bodies. */
+async function safeJson(res: Response): Promise<{ error?: string } | undefined> {
+  try {
+    return (await res.json()) as { error?: string };
+  } catch {
+    return undefined;
+  }
+}
+
 export function InvestorTerminal() {
   const [messages,   setMessages]   = useState<ChatMessage[]>(INIT_MESSAGES);
   const [bulletMap,  setBulletMap]  = useState(INIT_BULLETS);
   const [citeMap,    setCiteMap]    = useState(INIT_CITES);
+  const [lastUpdatedMap, setLastUpdatedMap] = useState<Record<string, string>>({});
   const [orbState,   setOrbState]   = useState<AgentVisualState>("IDLE");
   const [isTyping,   setIsTyping]   = useState(false);
   const [isMicActive, setIsMicActive] = useState(false);
@@ -140,44 +171,135 @@ export function InvestorTerminal() {
   }, []);
 
   const handleSubmit = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const userMsg = createChatMessage("user", text);
       setMessages((prev) => [...prev, userMsg]);
       setIsTyping(true);
       setOrbState("THINKING");
 
-      setTimeout(() => {
+      try {
+        const res = await fetch("/api/chat", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ query: text }),
+        });
+
+        if (!res.ok) {
+          /* Server-side error path — surface a deterministic 6-bullet
+           * notice rather than a raw error string. */
+          const errBody = await safeJson(res);
+          const errMsg = errBody?.error ?? `HTTP ${res.status}`;
+          const agentMsg = createChatMessage(
+            "assistant",
+            "Smart_Sync encountered an issue while processing your query.",
+          );
+          setMessages((prev) => [...prev, agentMsg]);
+          setBulletMap((prev) => ({
+            ...prev,
+            [agentMsg.id]: [
+              "The Smart-Sync orchestrator returned an error.",
+              `Status: ${res.status}. Detail: ${String(errMsg).slice(0, 80)}.`,
+              "This usually indicates a transient backend issue (Gemini or Supabase).",
+              "No facts were generated — to avoid hallucination, no bullets are shown.",
+              "Please retry the query in a few seconds.",
+              "If the issue persists, contact the Director Ops team.",
+            ],
+          }));
+          setCiteMap((prev) => ({ ...prev, [agentMsg.id]: [] }));
+          return;
+        }
+
+        const data = (await res.json()) as ChatApiResponse;
+        const agentMsg = createChatMessage("assistant", data.answer.summary);
+        setMessages((prev) => [...prev, agentMsg]);
+        setBulletMap((prev) => ({ ...prev, [agentMsg.id]: data.answer.bullets }));
+        setCiteMap((prev) => ({ ...prev, [agentMsg.id]: data.answer.citations }));
+        setLastUpdatedMap((prev) => ({ ...prev, [agentMsg.id]: data.meta.lastUpdated }));
+      } catch (err) {
+        /* Network or JSON-parse failure */
         const agentMsg = createChatMessage(
           "assistant",
-          "Here is what the Smart_Sync Knowledge Base has on your query:",
+          "Smart_Sync could not reach the Knowledge Base.",
         );
-        const bullets = [
-          `Query received: "${text.slice(0, 40)}${text.length > 40 ? "…" : ""}"`,
-          "Live retrieval would execute TF-IDF cosine similarity over 800+ indexed chunks.",
-          "Top-k results (k=8) passed to Gemini 2.0 Flash as grounded context window.",
-          "Compliance checks: Zero-advice guard + PII scanner run before response.",
-          "Source citations would accompany every factual claim (fund-level granularity).",
-          "Connect backend APIs in Phase 11 to wire real Gemini + RAG responses here.",
-        ];
+        const detail = err instanceof Error ? err.message : String(err);
         setMessages((prev) => [...prev, agentMsg]);
-        setBulletMap((prev) => ({ ...prev, [agentMsg.id]: bullets }));
-        setCiteMap((prev) => ({
+        setBulletMap((prev) => ({
           ...prev,
-          [agentMsg.id]: SAMPLE_CITATIONS.slice(0, 2),
+          [agentMsg.id]: [
+            "Network request to /api/chat failed.",
+            `Detail: ${detail.slice(0, 80)}.`,
+            "Smart_Sync is grounded — no fallback content is generated to prevent hallucination.",
+            "Please check your network connection and retry.",
+            "If you are running locally, verify `npm run dev` is active.",
+            "Smart_Sync will resume normal operation when the API is reachable.",
+          ],
         }));
+        setCiteMap((prev) => ({ ...prev, [agentMsg.id]: [] }));
+      } finally {
         setIsTyping(false);
         setOrbState("IDLE");
         setScanVisible(true);
         setPrefill("");
-      }, 1800);
+      }
     },
     [],
   );
 
-  const handleMicToggle = (active: boolean) => {
-    setIsMicActive(active);
-    setOrbState(active ? "LISTENING" : "IDLE");
-  };
+  /* ─── PHASE 11: Voice loop integration ─────────────────────── */
+  const conversation = useConversation();
+
+  const voice = useVoiceInteraction({
+    onTranscript: async (transcript) => {
+      /* Push the user transcript into the chat ribbon */
+      const userMsg = createChatMessage("user", transcript);
+      setMessages((prev) => [...prev, userMsg]);
+      setIsTyping(true);
+
+      /* Call /api/voice/converse via the conversation hook */
+      const turn = await conversation.send(transcript);
+      setIsTyping(false);
+
+      if (!turn) {
+        setMessages((prev) => [
+          ...prev,
+          createChatMessage(
+            "assistant",
+            "Sorry — voice service hiccup. Please try again or use text.",
+          ),
+        ]);
+        return;
+      }
+
+      /* Push assistant response */
+      const agentMsg = createChatMessage("assistant", turn.assistantText);
+      setMessages((prev) => [...prev, agentMsg]);
+      setScanVisible(true);
+
+      /* Return text so the hook can run TTS */
+      return { assistantText: turn.assistantText };
+    },
+  });
+
+  /* Mic toggle now routes to voice loop. If mic is active, stop
+   * recording (triggers STT→converse→TTS). Otherwise start. */
+  const handleMicToggle = useCallback(
+    async (active: boolean) => {
+      setIsMicActive(active);
+      if (active) {
+        await voice.startListening();
+      } else {
+        await voice.stopListening();
+      }
+    },
+    [voice],
+  );
+
+  /* Derive orb state from voice hook when voice mode is in use,
+   * otherwise fall through to the local text-mode state. */
+  const displayOrbState =
+    voice.isListening || voice.orbState !== "IDLE" ? voice.orbState : orbState;
+  const displayAudioLevel =
+    voice.isListening || voice.orbState === "SPEAKING" ? voice.audioLevel : 0;
 
   return (
     <>
@@ -259,9 +381,16 @@ export function InvestorTerminal() {
                 title="Click to cycle orb states (demo)"
               >
                 <AIOrb
-                  state={orbState}
-                  audioLevel={orbState === "LISTENING" || orbState === "SPEAKING" ? 0.5 : 0}
-                  themeContext={orbState === "IDLE" ? undefined : "KYC UPDATES"}
+                  state={displayOrbState}
+                  audioLevel={
+                    displayAudioLevel ||
+                    (displayOrbState === "LISTENING" || displayOrbState === "SPEAKING" ? 0.5 : 0)
+                  }
+                  themeContext={
+                    displayOrbState === "IDLE"
+                      ? conversation.state.themeGreeting?.toUpperCase()
+                      : "KYC UPDATES"
+                  }
                 />
               </div>
 
@@ -275,7 +404,9 @@ export function InvestorTerminal() {
                   marginTop:     "-4px",
                 }}
               >
-                ← click orb to cycle states: {orbState}
+                ← click orb to cycle states (demo): {displayOrbState}
+                {voice.isTextFallback && " · text-fallback active"}
+                {voice.lastError && ` · ${voice.lastError.slice(0, 60)}`}
               </p>
             </div>
 
@@ -285,6 +416,7 @@ export function InvestorTerminal() {
                 isTyping={isTyping}
                 bulletsByMessageId={bulletMap}
                 citationsByMessageId={citeMap}
+                lastUpdatedByMessageId={lastUpdatedMap}
               />
             </div>
 
@@ -348,7 +480,7 @@ export function InvestorTerminal() {
                 opacity:       0.6,
               }}
             >
-              PHASE 6 SHELL · MODE SWITCHER WIRED · BACKEND → PHASE 7+
+              PHASE 8 · LIVE SMART-SYNC RAG · GEMINI + SUPABASE WIRED
             </div>
           </main>
 
