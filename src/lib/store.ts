@@ -96,9 +96,21 @@ const INITIAL_CONVERSATION: ConversationState = createInitialConversationState(
  * Internal store shape — extends `UIState` with the `setActiveMode`
  * imperative setter used by the URL-sync layer (we keep it out of
  * UIState to preserve the published type-system surface from Phase 2).
+ *
+ * Phase 12 additions:
+ *   - setIsPulseGenerating  → drive PulseBriefing loading state
+ *   - setHitlItems          → batch hydrate the queue from Supabase
+ *   - setChatMessages       → batch hydrate chat (Phase 14 mode-switch persistence)
+ *   - addBookingStatus / updateBookingStatus → Phase 14 booking-status query
  */
 export interface UIStoreState extends UIState {
-  setActiveMode: (mode: AppMode) => void;
+  setActiveMode:        (mode: AppMode) => void;
+  setIsPulseGenerating: (v: boolean) => void;
+  setHitlItems:         (items: ApprovalItem[]) => void;
+  setChatMessages:      (messages: ChatMessage[]) => void;
+  /** Phase 14 — booking status lookup populated by HITL events. */
+  bookingStatuses:      Record<string, "pending" | "approved" | "rejected">;
+  setBookingStatus:     (code: string, status: "pending" | "approved" | "rejected") => void;
 }
 
 /* ── Module-scoped transition bookkeeping ──
@@ -142,6 +154,7 @@ export const useUIStore = create<UIStoreState>()(
         topTheme:           null,
         marketContext:      null,
         bookingCodes:       [],
+        bookingStatuses:    {},
         conversationState:  INITIAL_CONVERSATION,
 
         /* ════════════════════════════════════════════════════
@@ -266,6 +279,23 @@ export const useUIStore = create<UIStoreState>()(
             false,
             "resetConversation",
           ),
+
+        /* ── Phase 12+ additions ──────────────────────────── */
+        setIsPulseGenerating: (v: boolean) =>
+          set({ isPulseGenerating: v }, false, "setIsPulseGenerating"),
+
+        setHitlItems: (items: ApprovalItem[]) =>
+          set({ hitlItems: items }, false, "setHitlItems"),
+
+        setChatMessages: (messages: ChatMessage[]) =>
+          set({ chatMessages: messages }, false, "setChatMessages"),
+
+        setBookingStatus: (code: string, status: "pending" | "approved" | "rejected") =>
+          set(
+            (s) => ({ bookingStatuses: { ...s.bookingStatuses, [code]: status } }),
+            false,
+            "setBookingStatus",
+          ),
       } satisfies UIStoreState;
     }),
     { name: "nl-suite-ui-store", enabled: process.env.NODE_ENV !== "production" },
@@ -318,6 +348,7 @@ export function resetStoreForTests(): void {
       topTheme:          null,
       marketContext:     null,
       bookingCodes:      [],
+      bookingStatuses:   {},
       conversationState: createInitialConversationState("session-init-placeholder"),
     },
     false,

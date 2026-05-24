@@ -267,3 +267,91 @@ export function buildVoiceSystemPrompt(args: VoiceSystemPromptArgs): string {
  * for short re-prompts on rephrase / 3-strike escalation.
  */
 export { getPromptForState as getVoicePromptForState };
+
+/* ════════════════════════════════════════════════════════════════════
+   WEEKLY PULSE GENERATION — Phase 12
+   ════════════════════════════════════════════════════════════════════ */
+
+export interface PulsePromptReview {
+  /** PII-sanitized review text (already passed through redactPII) */
+  text: string;
+  starRating: number;
+  sentiment: "positive" | "negative" | "neutral";
+  reviewDate: string;
+}
+
+export interface PulseGenerationPromptArgs {
+  reviews: PulsePromptReview[];
+  weekStartLabel: string;          // e.g. "Week of 2026-05-19"
+  /** Optional reroll hint when retrying after a validation failure. */
+  rerollReason?: string;
+}
+
+/**
+ * Builds the Gemini prompt that generates a Weekly Pulse. Forces strict
+ * JSON output with the schema we'll validate downstream.
+ *
+ * Constraints (Req 6, Architecture Phase 12 Task 3):
+ *   - summaryText:  <= 250 words
+ *   - themes:        1..5, top 3 flagged with isTopThree = true
+ *   - quotes:        EXACTLY 3, verbatim from sanitized reviews
+ *   - actionIdeas:   EXACTLY 3, distinct, operational
+ *   - PII-free in every field
+ */
+export function buildPulseGenerationPrompt(args: PulseGenerationPromptArgs): string {
+  const { reviews, weekStartLabel, rerollReason } = args;
+
+  const numbered = reviews
+    .slice(0, 200) // hard cap on prompt size
+    .map((r, i) =>
+      `[${i + 1}] ★${r.starRating} (${r.sentiment}, ${r.reviewDate}): ${r.text}`,
+    )
+    .join("\n");
+
+  const rerollBlock = rerollReason
+    ? [
+        "",
+        "## REGENERATION REQUEST",
+        "The previous response was rejected for this reason:",
+        rerollReason,
+        "Fix the violation and return a clean response.",
+        "",
+      ].join("\n")
+    : "";
+
+  return [
+    "You are the Weekly Pulse author for Groww's Director Operations.",
+    "Your job: synthesize this week's investor reviews into a tight, ops-ready briefing.",
+    "",
+    `## CONTEXT: ${weekStartLabel} — ${reviews.length} reviews analysed`,
+    "",
+    "## REVIEWS (PII-sanitized)",
+    numbered || "(no reviews)",
+    rerollBlock,
+    "",
+    "## OUTPUT — STRICT JSON",
+    "Return ONLY a JSON object that matches this exact shape:",
+    "{",
+    '  "summaryText": "<= 250 words, neutral ops-ready prose, no investment advice, no PII>",',
+    '  "themes": [',
+    '    { "name": "<short theme label>", "reviewCount": <integer>, "isTopThree": <bool>, "sentiment": "positive"|"negative"|"neutral" }',
+    "  ],",
+    '  "quotes":       [ "<verbatim 1>", "<verbatim 2>", "<verbatim 3>" ],',
+    '  "actionIdeas":  [ "<action 1>",   "<action 2>",   "<action 3>"   ]',
+    "}",
+    "",
+    "## HARD RULES",
+    "1. summaryText: MUST be <= 250 words (count separated by whitespace). Trim if needed.",
+    "2. themes: MUST contain between 1 and 5 entries. The first 3 (top by reviewCount or impact) MUST have isTopThree=true; remaining MUST have isTopThree=false. Each name <= 60 chars.",
+    "3. quotes: EXACTLY 3 entries. Each MUST be drawn verbatim from one of the sanitized reviews above. Do NOT invent quotes. Each <= 240 chars.",
+    "4. actionIdeas: EXACTLY 3 entries. Each MUST be operational, distinct (no two starting with the same verb), <= 220 chars. No investment advice. No fund picks.",
+    "5. NEVER include PII: PAN, Aadhaar, phone, email, account number, balances. The inputs are already sanitized; never re-introduce these.",
+    "6. NEVER suggest a fund name, a return percentage, or any phrase that could be read as investment advice.",
+    "7. NEVER include leading prose, markdown fences, or trailing notes. Return raw JSON only.",
+    "",
+    "## STYLE",
+    "- Tone: professional, factual, non-alarmist, ops-ready.",
+    "- Avoid hype phrases (\"crucial\", \"alarming\", \"critical\") unless directly supported by data.",
+    "- Prefer concrete operational language: \"ship a guided ...\", \"publish an in-app ...\", \"surface a banner ...\".",
+  ].join("\n");
+}

@@ -27,8 +27,10 @@ import type {
   TickerItem,
   WeeklyPulse,
   PulseTheme,
+  PulseStatus,
 } from "@/types";
 import { apiSuccess, apiError } from "@/types";
+import { GROWW_APP_ID, REVIEW_INSERT_BATCH_SIZE } from "@/lib/constants";
 
 /* ════════════════════════════════════════════════════════════════════
    ROW <-> DOMAIN MAPPERS
@@ -312,6 +314,191 @@ export async function getLatestPulseTheme(): Promise<ApiResponse<string | null>>
     return apiError(err instanceof Error ? err.message : "Unknown error in getLatestPulseTheme");
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   PHASE 12 — PULSE & REVIEW WRITE PATHS
+   ════════════════════════════════════════════════════════════════════ */
+
+export type ReviewSentiment = "positive" | "negative" | "neutral";
+
+export interface IncomingReviewRow {
+  platform: "android" | "ios" | "csv" | "web";
+  platformReviewId: string;
+  authorName: string;
+  starRating: number;
+  reviewText: string;
+  /** Optional — if absent we run redactPII() at insert time. */
+  sanitizedText?: string;
+  sentiment?: ReviewSentiment;
+  deviceInfo?: string;
+  appVersion?: string;
+  osVersion?: string;
+  upvoteCount?: number;
+  reviewDate: string; // YYYY-MM-DD
+}
+
+/**
+ * Returns the number of reviews for the Groww app, used as a precondition
+ * for pulse generation (Req 6: <10 reviews → warn, no generation).
+ */
+export async function getReviewCount(): Promise<ApiResponse<number>> {
+  try {
+    const supabase = getSupabaseClient();
+    const { count, error } = await supabase
+      .from("reviews")
+      .select("id", { count: "exact", head: true })
+      .eq("app_id", GROWW_APP_ID);
+    if (error) return apiError(error.message);
+    return apiSuccess(count ?? 0);
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in getReviewCount");
+  }
+}
+
+/**
+ * Returns up to `limit` most-recent reviews for pulse generation input.
+ * Returns the `sanitized_text` column so the LLM never sees raw PII.
+ */
+export async function getReviewsForPulse(
+  limit = 400,
+): Promise<ApiResponse<{ sanitizedText: string; starRating: number; reviewDate: string; sentiment: ReviewSentiment }[]>> {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("reviews")
+      .select("sanitized_text, star_rating, review_date, sentiment")
+      .eq("app_id", GROWW_APP_ID)
+      .order("review_date", { ascending: false })
+      .limit(limit);
+    if (error) return apiError(error.message);
+    if (!data) return apiSuccess([]);
+    return apiSuccess(
+      data.map((r) => ({
+        sanitizedText: (r as { sanitized_text: string }).sanitized_text,
+        starRating:    (r as { star_rating: number }).star_rating,
+        reviewDate:    (r as { review_date: string }).review_date,
+        sentiment:     ((r as { sentiment: ReviewSentiment | null }).sentiment ?? "neutral") as ReviewSentiment,
+      })),
+    );
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in getReviewsForPulse");
+  }
+}
+
+/**
+ * Batch-inserts reviews into Supabase. Caller MUST have PII-sanitized
+ * `reviewText` before passing it in (we copy reviewText → sanitized_text
+ * only if `sanitizedText` is missing).
+ *
+ * Returns the count of inserted rows.
+ */
+export async function insertReviews(
+  rows: IncomingReviewRow[],
+): Promise<ApiResponse<{ inserted: number }>> {
+  if (rows.length === 0) return apiSuccess({ inserted: 0 });
+
+  try {
+    const supabase = getSupabaseClient();
+    let inserted = 0;
+    for (let i = 0; i < rows.length; i += REVIEW_INSERT_BATCH_SIZE) {
+      const batch = rows.slice(i, i + REVIEW_INSERT_BATCH_SIZE);
+      const payload = batch.map((r) => ({
+        app_id:              GROWW_APP_ID,
+        platform_review_id:  r.platformReviewId,
+        platform:            r.platform,
+        author_name:         r.authorName,
+        star_rating:         r.starRating,
+        review_text:         r.reviewText,
+        sanitized_text:      r.sanitizedText ?? r.reviewText,
+        sentiment:           r.sentiment ?? "neutral",
+        device_info:         r.deviceInfo ?? null,
+        app_version:         r.appVersion ?? null,
+        os_version:          r.osVersion ?? null,
+        upvote_count:        r.upvoteCount ?? 0,
+        review_date:         r.reviewDate,
+      }));
+      const { error } = await supabase
+        .from("reviews")
+        .upsert(payload, { onConflict: "app_id,platform_review_id,platform" });
+      if (error) return apiError(error.message);
+      inserted += batch.length;
+    }
+    return apiSuccess({ inserted });
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in insertReviews");
+  }
+}
+
+/**
+ * Inserts a freshly generated weekly pulse. Caller has already validated
+ * the structural constraints (≤ 250 w, exactly 3 quotes etc.).
+ *
+ * Returns the inserted row mapped to the `WeeklyPulse` domain shape.
+ */
+export interface InsertPulseArgs {
+  pulseContent: string;
+  themes:       PulseTheme[];
+  quotes:       string[];
+  actionIdeas:  string[];
+  reviewCount:  number;
+  status?:      PulseStatus;
+}
+
+export async function insertWeeklyPulse(
+  args: InsertPulseArgs,
+): Promise<ApiResponse<WeeklyPulse>> {
+  try {
+    const supabase = getSupabaseClient();
+    const payload = {
+      app_id:        GROWW_APP_ID,
+      pulse_content: args.pulseContent,
+      themes:        args.themes,
+      quotes:        args.quotes,
+      action_ideas:  args.actionIdeas,
+      status:        args.status ?? "draft",
+    };
+    const { data, error } = await supabase
+      .from("weekly_pulses")
+      .insert(payload)
+      .select("*")
+      .single();
+    if (error) return apiError(error.message);
+    if (!data) return apiError("Insert returned no row");
+    const mapped = mapPulseRow(data as WeeklyPulseDbRow);
+    return apiSuccess({ ...mapped, reviewCount: args.reviewCount });
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in insertWeeklyPulse");
+  }
+}
+
+/**
+ * Updates the status of a pulse (authorize/reject). Used by Director Ops.
+ */
+export async function updatePulseStatus(
+  id: string,
+  status: PulseStatus,
+): Promise<ApiResponse<WeeklyPulse>> {
+  try {
+    const supabase = getSupabaseClient();
+    const patch: Record<string, unknown> = { status };
+    if (status === "authorized") patch.approved_at = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("weekly_pulses")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (error) return apiError(error.message);
+    if (!data) return apiError(`Pulse ${id} not found`);
+    return apiSuccess(mapPulseRow(data as WeeklyPulseDbRow));
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in updatePulseStatus");
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   TICKER
+   ════════════════════════════════════════════════════════════════════ */
 
 /**
  * Returns ticker-ready data — 20 fund rows formatted for the MarqueeTicker.

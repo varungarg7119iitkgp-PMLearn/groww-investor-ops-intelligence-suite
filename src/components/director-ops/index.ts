@@ -19,4 +19,5 @@ export type { OpsSection }     from "./OpsSidebar";
 export { CategoryMixBar }      from "./CategoryMixBar";
 export { SentimentTrend }      from "./SentimentTrend";
 export type { SentimentPoint } from "./SentimentTrend";
+export { FeeExplainerCard }    from "./FeeExplainerCard";
 export { DirectorOpsConsole } from "./DirectorOpsConsole";

@@ -505,6 +505,8 @@ export interface UIState {
   topTheme: string | null;
   marketContext: string | null;
   bookingCodes: BookingSummary[];
+  /** Phase 14: booking-code → status lookup, surfaced into Investor for "What's my booking status?" */
+  bookingStatuses: Record<string, "pending" | "approved" | "rejected">;
   conversationState: ConversationState;
 
   /* Actions */

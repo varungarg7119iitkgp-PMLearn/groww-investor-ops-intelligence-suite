@@ -18,7 +18,7 @@
 
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   PulseBriefing,
   HitlQueue,
@@ -27,6 +27,7 @@ import {
   OpsSidebar,
   CategoryMixBar,
   SentimentTrend,
+  FeeExplainerCard,
 } from "@/components/director-ops";
 import type { ApprovalItem, WeeklyPulse, PulseTheme } from "@/types";
 import type {
@@ -35,6 +36,7 @@ import type {
   OpsSection,
   SentimentPoint,
 } from "@/components/director-ops";
+import { useUIStore } from "@/lib/store";
 
 /* ════════════════════════════════════════════════════════════════
    MOCK DATA — anchored to M2 PM Pulsator review patterns
@@ -182,24 +184,113 @@ const MOCK_SENTIMENT_CHAT: SentimentPoint[] = [
 /* ─────────────────────────────────────────────────────────────── */
 
 export function DirectorOpsConsole() {
-  const [pulse,           setPulse]         = useState<WeeklyPulse | null>(MOCK_PULSE);
-  const [isGenerating,    setIsGenerating]  = useState(false);
-  const [items,           setItems]         = useState<ApprovalItem[]>(MOCK_APPROVALS);
+  /* Zustand selectors — preserved across mode switches (Phase 14). */
+  const storePulse           = useUIStore((s) => s.pulseData);
+  const setPulseData         = useUIStore((s) => s.setPulseData);
+  const isStoreGenerating    = useUIStore((s) => s.isPulseGenerating);
+  const setIsPulseGenerating = useUIStore((s) => s.setIsPulseGenerating);
+  const storeItems           = useUIStore((s) => s.hitlItems);
+  const setHitlItems         = useUIStore((s) => s.setHitlItems);
+  const setTopTheme          = useUIStore((s) => s.setTopTheme);
+  const setMarketContext     = useUIStore((s) => s.setMarketContext);
+
+  /* Locally-derived UI state. */
   const [checkedActions,  setCheckedActions]= useState<boolean[]>([false, false, false]);
   const [platform,        setPlatform]      = useState<OpsPlatformFilter>("ALL");
   const [timeRange,       setTimeRange]     = useState<OpsTimeFilter>("LAST_7");
   const [activeSection,   setActiveSection] = useState<OpsSection>("PULSE");
   const [isSyncing,       setIsSyncing]     = useState(false);
-  const [lastSync,        setLastSync]      = useState<string>("2026-05-24T11:30:00.000Z");
+  const [lastSync,        setLastSync]      = useState<string>(new Date().toISOString());
+  const [genError,        setGenError]      = useState<string | null>(null);
+  const [uploadStats,     setUploadStats]   = useState<{ inserted: number; piiHits: number; totalRows: number } | null>(null);
 
-  const handleGenerate = useCallback(() => {
-    setIsGenerating(true);
-    setPulse(null);
-    window.setTimeout(() => {
-      setPulse(MOCK_PULSE);
-      setIsGenerating(false);
-    }, 1800);
+  /* Pulse hydration: fall back to MOCK if Supabase returns nothing on first
+   * mount (keeps the console useful during seed/empty deploys). */
+  const pulse        = storePulse ?? null;
+  const isGenerating = isStoreGenerating;
+  const items        = storeItems.length > 0 ? storeItems : MOCK_APPROVALS;
+
+  /* First-mount: hydrate from /api/pulse/latest */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/pulse/latest", { cache: "no-store" });
+        if (!r.ok || cancelled) return;
+        const json = await r.json();
+        const live: WeeklyPulse | null = json?.pulse ?? null;
+        if (cancelled) return;
+        if (live) {
+          setPulseData(live);
+          const top = live.themes?.[0];
+          if (top?.name) setTopTheme(top.name);
+          setMarketContext(live.summaryText.slice(0, 240));
+        } else {
+          /* No live pulse yet — seed UI with the mock so demo is still useful. */
+          setPulseData(MOCK_PULSE);
+          setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
+          setMarketContext(MOCK_PULSE.summaryText.slice(0, 240));
+        }
+      } catch {
+        if (!cancelled) {
+          setPulseData(MOCK_PULSE);
+          setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleGenerate = useCallback(async () => {
+    setIsPulseGenerating(true);
+    setGenError(null);
+    try {
+      const r = await fetch("/api/pulse/generate", {
+        method:  "POST",
+        headers: { "content-type": "application/json" },
+        body:    JSON.stringify({}),
+      });
+      const json = await r.json();
+      if (!r.ok) {
+        setGenError(json?.error ?? `Pulse generation failed (${r.status})`);
+        return;
+      }
+      const generated: WeeklyPulse = json.pulse;
+      setPulseData(generated);
+      const top = generated.themes?.[0];
+      if (top?.name) setTopTheme(top.name);
+      setMarketContext(generated.summaryText.slice(0, 240));
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsPulseGenerating(false);
+    }
+  }, [setIsPulseGenerating, setPulseData, setTopTheme, setMarketContext]);
+
+  const handleUploadCSV = useCallback(async (file: File) => {
+    setUploadStats(null);
+    setGenError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/reviews/upload", { method: "POST", body: fd });
+      const json = await r.json();
+      if (!r.ok) {
+        setGenError(json?.error ?? `Upload failed (${r.status})`);
+        return;
+      }
+      setUploadStats({
+        inserted:  json.inserted ?? 0,
+        piiHits:   json.piiHits ?? 0,
+        totalRows: json.totalRows ?? 0,
+      });
+      /* Auto-trigger pulse generation after ingest. */
+      await handleGenerate();
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : String(err));
+    }
+  }, [handleGenerate]);
 
   const handleSync = useCallback(() => {
     setIsSyncing(true);
@@ -214,27 +305,36 @@ export function DirectorOpsConsole() {
     setTimeRange("LAST_7");
   }, []);
 
+  /* Mutators — write to Zustand so Phase 14 cross-pillar can read */
+  const updateItems = useCallback(
+    (mutator: (prev: ApprovalItem[]) => ApprovalItem[]) => {
+      const base = storeItems.length > 0 ? storeItems : MOCK_APPROVALS;
+      setHitlItems(mutator(base));
+    },
+    [storeItems, setHitlItems],
+  );
+
   const handleAuthorize = useCallback((id: string, updatedEmail?: string) => {
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.map((i) =>
         i.id === id
           ? { ...i, status: "authorized", authorizedAt: new Date().toISOString(), emailDraft: updatedEmail ?? i.emailDraft }
           : i,
       ),
     );
-  }, []);
+  }, [updateItems]);
 
   const handleOverride = useCallback((id: string, reason?: string) => {
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.map((i) =>
         i.id === id ? { ...i, status: "rejected", overrideReason: reason ?? "Operator override" } : i,
       ),
     );
-  }, []);
+  }, [updateItems]);
 
   const handleEmailEdit = useCallback((id: string, newDraft: string) => {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, emailDraft: newDraft } : i)));
-  }, []);
+    updateItems((prev) => prev.map((i) => (i.id === id ? { ...i, emailDraft: newDraft } : i)));
+  }, [updateItems]);
 
   const handleActionToggle = useCallback((idx: number, checked: boolean) => {
     setCheckedActions((prev) => {
@@ -303,9 +403,37 @@ export function DirectorOpsConsole() {
               pulse={pulse}
               isGenerating={isGenerating}
               onGenerate={handleGenerate}
+              onUploadCSV={handleUploadCSV}
               onActionToggle={handleActionToggle}
               checkedActions={checkedActions}
             />
+            {(genError || uploadStats) && (
+              <div
+                data-testid="pulse-status-banner"
+                role={genError ? "alert" : "status"}
+                style={{
+                  marginTop:    "10px",
+                  padding:      "8px 12px",
+                  fontFamily:   "var(--font-hud)",
+                  fontSize:     "11px",
+                  letterSpacing: "0.05em",
+                  borderRadius: "8px",
+                  background:   genError ? "rgba(239, 68, 68, 0.08)" : "rgba(16, 185, 129, 0.08)",
+                  border:       genError ? "1px solid rgba(239, 68, 68, 0.5)" : "1px solid rgba(16, 185, 129, 0.45)",
+                  color:        genError ? "var(--color-error, #ef4444)" : "var(--color-success, #10b981)",
+                }}
+              >
+                {genError
+                  ? `Error: ${genError}`
+                  : uploadStats
+                  ? `Ingested ${uploadStats.inserted} of ${uploadStats.totalRows} reviews (${uploadStats.piiHits} PII matches scrubbed).`
+                  : ""}
+              </div>
+            )}
+          </SectionAnchor>
+
+          <SectionAnchor id="section-fee-explainer" label="FEE EXPLAINER">
+            <FeeExplainerCard />
           </SectionAnchor>
 
           <SectionAnchor id="section-approvals" label="HITL APPROVAL CENTRE">
