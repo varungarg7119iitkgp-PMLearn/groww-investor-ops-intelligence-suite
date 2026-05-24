@@ -1,0 +1,485 @@
+@import "tailwindcss";
+
+/* ============================================================
+   STARK-GLASS HUD — DESIGN TOKEN SYSTEM  (Phase 1 Scaffold)
+   Capstone: Groww — Investor Ops & Intelligence Suite
+   All tokens defined here are the single source of truth.
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   TAILWIND v4 @THEME — exposes all tokens as Tailwind utils
+   bg-void, text-investor, font-hud, etc.
+   ---------------------------------------------------------- */
+@theme {
+  /* ── Colour Palette ── */
+  --color-void:           #030508;
+  --color-surface-1:      rgba(255, 255, 255, 0.04);
+  --color-surface-2:      rgba(255, 255, 255, 0.08);
+  --color-surface-3:      rgba(255, 255, 255, 0.12);
+  --color-surface-stroke: rgba(255, 255, 255, 0.10);
+
+  /* Investor Terminal — Arc Cyan */
+  --color-investor:       #00E5FF;
+  --color-investor-glow:  rgba(0, 229, 255, 0.20);
+  --color-investor-dim:   rgba(0, 229, 255, 0.08);
+  --color-investor-600:   #00B8D4;
+
+  /* Director Ops — Tactical Amber */
+  --color-ops:            #FFAB00;
+  --color-ops-glow:       rgba(255, 171, 0, 0.20);
+  --color-ops-dim:        rgba(255, 171, 0, 0.08);
+  --color-ops-600:        #E65100;
+
+  /* Semantic */
+  --color-success:        #00E676;
+  --color-success-dim:    rgba(0, 230, 118, 0.12);
+  --color-error:          #FF1744;
+  --color-error-dim:      rgba(255, 23, 68, 0.12);
+  --color-warning:        #FFD740;
+  --color-warning-dim:    rgba(255, 215, 64, 0.12);
+  --color-info:           #40C4FF;
+
+  /* Text hierarchy */
+  --color-text-primary:   #E8EEF6;
+  --color-text-secondary: #8B9CB3;
+  --color-text-tertiary:  #4A5568;
+  --color-text-disabled:  #2D3748;
+
+  /* ── Typography ── */
+  --font-display: "Inter Tight", "SF Pro Display", system-ui, sans-serif;
+  --font-body:    "Inter", system-ui, sans-serif;
+  --font-hud:     "JetBrains Mono", "Space Mono", "Fira Code", monospace;
+
+  /* Font sizes */
+  --text-xs:   0.75rem;
+  --text-sm:   0.875rem;
+  --text-base: 1rem;
+  --text-lg:   1.125rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.5rem;
+  --text-3xl:  1.875rem;
+  --text-4xl:  2.25rem;
+  --text-5xl:  3rem;
+  --text-6xl:  3.75rem;
+
+  /* ── Layout / Spacing ── */
+  --spacing-px:  1px;
+  --spacing-0:   0px;
+  --spacing-1:   0.25rem;
+  --spacing-2:   0.5rem;
+  --spacing-3:   0.75rem;
+  --spacing-4:   1rem;
+  --spacing-5:   1.25rem;
+  --spacing-6:   1.5rem;
+  --spacing-8:   2rem;
+  --spacing-10:  2.5rem;
+  --spacing-12:  3rem;
+  --spacing-16:  4rem;
+  --spacing-20:  5rem;
+  --spacing-24:  6rem;
+
+  /* Border radius */
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  24px;
+  --radius-full: 9999px;
+
+  /* ── Animation ── */
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-in-expo:  cubic-bezier(0.95, 0.05, 0.795, 0.035);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --duration-instant: 80ms;
+  --duration-fast:    150ms;
+  --duration-normal:  300ms;
+  --duration-slow:    600ms;
+  --duration-slower:  900ms;
+
+  /* ── Z-Index ── */
+  --z-base:    0;
+  --z-raised:  10;
+  --z-overlay: 100;
+  --z-modal:   200;
+  --z-toast:   300;
+  --z-tooltip: 400;
+}
+
+/* ----------------------------------------------------------
+   :ROOT — CSS CUSTOM PROPERTIES
+   Needed for direct CSS consumption (Framer Motion inline
+   styles, third-party lib vars, dynamic theming).
+   ---------------------------------------------------------- */
+:root {
+  /* Colour system */
+  --void-bg:              #030508;
+  --surface-1:            rgba(255, 255, 255, 0.04);
+  --surface-2:            rgba(255, 255, 255, 0.08);
+  --surface-3:            rgba(255, 255, 255, 0.12);
+  --surface-stroke:       rgba(255, 255, 255, 0.10);
+
+  --investor:             #00E5FF;
+  --investor-glow:        rgba(0, 229, 255, 0.20);
+  --investor-dim:         rgba(0, 229, 255, 0.08);
+
+  --ops:                  #FFAB00;
+  --ops-glow:             rgba(255, 171, 0, 0.20);
+  --ops-dim:              rgba(255, 171, 0, 0.08);
+
+  --success:              #00E676;
+  --success-dim:          rgba(0, 230, 118, 0.12);
+  --error:                #FF1744;
+  --error-dim:            rgba(255, 23, 68, 0.12);
+  --warning:              #FFD740;
+  --warning-dim:          rgba(255, 215, 64, 0.12);
+  --info:                 #40C4FF;
+
+  --text-primary:         #E8EEF6;
+  --text-secondary:       #8B9CB3;
+  --text-tertiary:        #4A5568;
+  --text-disabled:        #2D3748;
+
+  /* Typography */
+  --font-display:         "Inter Tight", "SF Pro Display", system-ui, sans-serif;
+  --font-body:            "Inter", system-ui, sans-serif;
+  --font-hud:             "JetBrains Mono", "Space Mono", monospace;
+
+  /* Glass morphism system — UI/UX §3.1 exact values */
+  --glass-bg:             rgba(10, 15, 30, 0.4);
+  --glass-border:         rgba(0, 229, 255, 0.15);
+  --glass-blur:           24px;
+  --glass-radius:         20px;
+  --glass-shadow:         0 12px 40px -12px rgba(0, 0, 0, 0.5);
+  --glass-inner-shadow:   inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
+  /* Neumorphism (buttons) — UI/UX §3.1 exact values */
+  --neu-bg:               rgba(20, 25, 40, 0.6);
+  --neu-bg-pressed:       rgba(10, 15, 25, 0.8);
+  --neu-shadow-dark:      rgba(0, 0, 0, 0.40);
+  --neu-shadow-light:     rgba(255, 255, 255, 0.03);
+
+  /* Glow helpers — UI/UX §2.4 */
+  --glow-cyan:            0 0 15px rgba(0, 229, 255, 0.4);
+  --glow-amber:           0 0 15px rgba(255, 171, 0, 0.4);
+  --glow-success:         0 0 15px rgba(0, 230, 118, 0.4);
+  --glow-danger:          0 0 15px rgba(255, 23, 68, 0.4);
+
+  /* Spec-aligned text aliases */
+  --text-main:            #FFFFFF;
+  --text-muted:           #8A9BB2;
+
+  /* Motion durations — UI/UX §2.4 */
+  --duration-hover:       200ms;
+  --duration-panel:       400ms;
+  --duration-transition:  400ms;
+  --duration-entrance:    600ms;
+
+  /* Investor Terminal glass */
+  --glass-investor:       rgba(0, 229, 255, 0.03);
+  --glass-investor-border:rgba(0, 229, 255, 0.15);
+
+  /* Director Ops glass */
+  --glass-ops:            rgba(255, 171, 0, 0.03);
+  --glass-ops-border:     rgba(255, 171, 0, 0.15);
+
+  /* Aurora background orbs */
+  --aurora-1:             radial-gradient(ellipse 60% 40% at 20% 30%, rgba(0, 229, 255, 0.06) 0%, transparent 60%);
+  --aurora-2:             radial-gradient(ellipse 50% 35% at 80% 70%, rgba(255, 171, 0, 0.05) 0%, transparent 55%);
+  --aurora-3:             radial-gradient(ellipse 40% 30% at 50% 50%, rgba(0, 230, 118, 0.03) 0%, transparent 50%);
+
+  /* Mode accent — toggled by [data-mode] */
+  --mode-accent:          var(--investor);
+  --mode-glow:            var(--investor-glow);
+  --mode-dim:             var(--investor-dim);
+  --mode-glass:           var(--glass-investor);
+  --mode-border:          var(--glass-investor-border);
+
+  /* Layout */
+  --sidebar-width:        280px;
+  --topbar-height:        64px;
+  --panel-radius:         16px;
+  --content-max-width:    1440px;
+}
+
+/* Director Ops mode overrides */
+[data-mode="director-ops"] {
+  --mode-accent:  var(--ops);
+  --mode-glow:    var(--ops-glow);
+  --mode-dim:     var(--ops-dim);
+  --mode-glass:   var(--glass-ops);
+  --mode-border:  var(--glass-ops-border);
+}
+
+/* ----------------------------------------------------------
+   BASE STYLES
+   ---------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--void-bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-feature-settings: "cv01", "cv02", "cv03", "cv04", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* ----------------------------------------------------------
+   GLASS PANEL — reusable utility class
+   ---------------------------------------------------------- */
+.glass-panel {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--glass-shadow), var(--glass-inner-shadow);
+  border-radius: var(--glass-radius);
+  transition: border-color var(--duration-hover) var(--ease-out-expo);
+}
+
+.glass-panel:hover {
+  border-color: rgba(0, 229, 255, 0.25);
+}
+
+.glass-panel-investor {
+  background: var(--glass-investor);
+  border-color: var(--glass-investor-border);
+}
+
+.glass-panel-ops {
+  background: var(--glass-ops);
+  border-color: var(--glass-ops-border);
+}
+
+/* ----------------------------------------------------------
+   NEUMORPHIC BUTTON — base styles
+   ---------------------------------------------------------- */
+.neu-btn {
+  background: var(--neu-bg);
+  box-shadow:
+    4px 4px 8px var(--neu-shadow-dark),
+    -2px -2px 6px var(--neu-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  transition: box-shadow var(--duration-fast) var(--ease-out-expo),
+              transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.neu-btn:hover {
+  box-shadow:
+    6px 6px 12px var(--neu-shadow-dark),
+    -3px -3px 8px var(--neu-shadow-light);
+  transform: translateY(-1px);
+}
+
+.neu-btn:active {
+  box-shadow:
+    2px 2px 4px var(--neu-shadow-dark),
+    -1px -1px 3px var(--neu-shadow-light);
+  transform: translateY(0);
+}
+
+/* ----------------------------------------------------------
+   AURORA MESH BACKGROUND
+   ---------------------------------------------------------- */
+.aurora-mesh {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    var(--aurora-1),
+    var(--aurora-2),
+    var(--aurora-3);
+}
+
+/* ----------------------------------------------------------
+   HUD SCANLINE OVERLAY
+   ---------------------------------------------------------- */
+.hud-scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.04) 2px,
+    rgba(0, 0, 0, 0.04) 4px
+  );
+}
+
+/* ----------------------------------------------------------
+   TYPOGRAPHY UTILITIES
+   ---------------------------------------------------------- */
+.font-display { font-family: var(--font-display); }
+.font-body    { font-family: var(--font-body); }
+.font-hud     { font-family: var(--font-hud); }
+
+.text-gradient-investor {
+  background: linear-gradient(135deg, var(--investor) 0%, #00B8D4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-ops {
+  background: linear-gradient(135deg, var(--ops) 0%, #E65100 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ----------------------------------------------------------
+   GLOW UTILITIES
+   ---------------------------------------------------------- */
+.glow-investor {
+  box-shadow: 0 0 20px var(--investor-glow), 0 0 60px rgba(0, 229, 255, 0.08);
+}
+
+.glow-ops {
+  box-shadow: 0 0 20px var(--ops-glow), 0 0 60px rgba(255, 171, 0, 0.08);
+}
+
+.glow-success {
+  box-shadow: 0 0 16px var(--success-dim);
+}
+
+.glow-error {
+  box-shadow: 0 0 16px var(--error-dim);
+}
+
+/* ----------------------------------------------------------
+   SCROLLBAR STYLING (Webkit)
+   ---------------------------------------------------------- */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-stroke);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ----------------------------------------------------------
+   FOCUS RING (Accessibility)
+   ---------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--mode-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ----------------------------------------------------------
+   SELECTION
+   ---------------------------------------------------------- */
+::selection {
+  background: var(--investor-glow);
+  color: var(--investor);
+}
+
+/* ----------------------------------------------------------
+   MODE TRANSITION — smooth switch between Investor / Ops
+   ---------------------------------------------------------- */
+.mode-transition-container {
+  transition:
+    background-color var(--duration-normal) var(--ease-out-expo),
+    border-color     var(--duration-normal) var(--ease-out-expo),
+    box-shadow       var(--duration-normal) var(--ease-out-expo);
+}
+
+/* ----------------------------------------------------------
+   MARQUEE TICKER — Phase 4
+   CSS-only animation for 60fps seamless horizontal scroll.
+   The track renders 2× the item list; we translate -50%
+   which is exactly one full copy width, achieving a seamless loop.
+   ---------------------------------------------------------- */
+@keyframes ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 60s linear infinite;
+  will-change: transform;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+
+/* ----------------------------------------------------------
+   AI ORB — Phase 4
+   Keyframe helpers for idle rotation and scanner arc.
+   ---------------------------------------------------------- */
+@keyframes orb-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes orb-counter-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+
+@keyframes orb-scanner {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%       { transform: scale(1.06); opacity: 1; }
+}
+
+@keyframes hud-bracket-flash {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
+}
+
+/* ----------------------------------------------------------
+   TYPEWRITER CURSOR — Chat Terminal
+   ---------------------------------------------------------- */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.typewriter-cursor::after {
+  content: "▋";
+  display: inline-block;
+  color: var(--investor);
+  animation: blink-cursor 1s step-end infinite;
+  margin-left: 1px;
+  font-size: 0.8em;
+  line-height: 1;
+}
