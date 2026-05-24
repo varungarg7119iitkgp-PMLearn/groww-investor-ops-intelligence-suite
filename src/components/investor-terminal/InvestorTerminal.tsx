@@ -160,11 +160,13 @@ export function InvestorTerminal() {
   const [orbStateIdx, setOrbStateIdx] = useState(0);
   const [prefill,    setPrefill]    = useState("");
 
-  const cycleOrb = () => {
-    const next = (orbStateIdx + 1) % ORB_CYCLE.length;
-    setOrbStateIdx(next);
-    setOrbState(ORB_CYCLE[next]);
-  };
+  const cycleOrb = useCallback(() => {
+    setOrbStateIdx((prev) => {
+      const next = (prev + 1) % ORB_CYCLE.length;
+      setOrbState(ORB_CYCLE[next]);
+      return next;
+    });
+  }, []);
 
   const handleTickerClick = useCallback((fundName: string) => {
     setPrefill(`Show key stats for ${fundName}`);
@@ -294,6 +296,35 @@ export function InvestorTerminal() {
     [voice],
   );
 
+  /* Orb click handler — Phase 11 production fix.
+   *
+   * The orb is the primary voice affordance. A click must start/stop
+   * the voice loop (STT → /api/voice/converse → TTS). Previously the
+   * click only cycled visual states for demo, which is why users
+   * reported "Orb STT/TTS not working" in production.
+   *
+   * Behavior:
+   *   IDLE        → start mic (LISTENING)
+   *   LISTENING   → stop mic, run STT pipeline
+   *   THINKING / SPEAKING → ignore (let the current turn finish)
+   *   text-fallback (no mic / permission denied) → cycle visual states */
+  const handleOrbClick = useCallback(async () => {
+    if (voice.isListening) {
+      setIsMicActive(false);
+      await voice.stopListening();
+      return;
+    }
+    if (voice.orbState === "THINKING" || voice.orbState === "SPEAKING") {
+      return;
+    }
+    if (voice.isTextFallback) {
+      cycleOrb();
+      return;
+    }
+    setIsMicActive(true);
+    await voice.startListening();
+  }, [voice, cycleOrb]);
+
   /* Derive orb state from voice hook when voice mode is in use,
    * otherwise fall through to the local text-mode state. */
   const displayOrbState =
@@ -370,15 +401,27 @@ export function InvestorTerminal() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={cycleOrb}
-                onKeyDown={(e) => e.key === "Enter" && cycleOrb()}
-                aria-label={`AI Orb — current state: ${orbState}. Click to cycle states.`}
+                onClick={handleOrbClick}
+                onKeyDown={(e) => e.key === "Enter" && handleOrbClick()}
+                aria-label={
+                  voice.isListening
+                    ? "AI Orb — listening. Click to stop and send."
+                    : voice.isTextFallback
+                    ? `AI Orb — text-fallback (no mic). Current state: ${displayOrbState}. Click to cycle states.`
+                    : `AI Orb — current state: ${displayOrbState}. Click to start voice.`
+                }
                 style={{
                   cursor:       "pointer",
                   outline:      "none",
                   marginBottom: "-8px",
                 }}
-                title="Click to cycle orb states (demo)"
+                title={
+                  voice.isListening
+                    ? "Click to stop & send"
+                    : voice.isTextFallback
+                    ? "Click to cycle states (mic unavailable)"
+                    : "Click to talk"
+                }
               >
                 <AIOrb
                   state={displayOrbState}
@@ -404,8 +447,15 @@ export function InvestorTerminal() {
                   marginTop:     "-4px",
                 }}
               >
-                ← click orb to cycle states (demo): {displayOrbState}
-                {voice.isTextFallback && " · text-fallback active"}
+                {voice.isListening
+                  ? "● listening · click orb again to send"
+                  : voice.orbState === "THINKING"
+                  ? "▣ thinking…"
+                  : voice.orbState === "SPEAKING"
+                  ? "♪ speaking…"
+                  : voice.isTextFallback
+                  ? "text-fallback active · click orb to cycle demo states"
+                  : "click orb to talk · state: " + displayOrbState}
                 {voice.lastError && ` · ${voice.lastError.slice(0, 60)}`}
               </p>
             </div>

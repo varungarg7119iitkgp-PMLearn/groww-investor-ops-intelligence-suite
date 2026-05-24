@@ -60,9 +60,18 @@ export function useVoiceInteraction(
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  /** Current TTS playback element. We deliberately create a FRESH Audio
+   *  object on every speak() call so MediaElementAudioSourceNode never
+   *  hits its "one source node per element" limitation. */
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const { level: audioLevel, connectStream, connectAudioElement, disconnect } = useAudioAnalyzer();
+  /* Note: we no longer wire the TTS playback through Web Audio. The orb
+   * has its own steady-state amplitude during SPEAKING (the parent
+   * component falls back to 0.5 in that case), and routing the playback
+   * through Web Audio caused silent audio on the 2nd+ turn because the
+   * audio element became permanently bound to a MediaElementSourceNode
+   * whose destination chain was being torn down between turns. */
+  const { level: audioLevel, connectStream, disconnect } = useAudioAnalyzer();
 
   /* ── Initialize mic availability check (lazy on first call) ── */
   const acquireMic = useCallback(async (): Promise<MediaStream | null> => {
@@ -168,10 +177,37 @@ export function useVoiceInteraction(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disconnect, opts]);
 
-  /* ── speak ────────────────────────────────────────────────── */
+  /* ── speak ──────────────────────────────────────────────────
+   * Plays a TTS audio blob from /api/voice/tts.
+   *
+   * Production-bug fix notes:
+   *  - Fresh `new Audio()` per call. Reusing a single element across
+   *    turns is fatal because once a MediaElementAudioSourceNode is
+   *    bound to it, the playback is hijacked by Web Audio for the
+   *    rest of that element's life — even after the source node is
+   *    disconnected.
+   *  - No `crossOrigin` on blob URLs. Setting `crossOrigin = "anonymous"`
+   *    after `src` is set caused Safari to re-fetch the blob and fail.
+   *  - No Web Audio routing for playback. The previous version pumped
+   *    audio through createMediaElementSource(), which silently produced
+   *    no sound on the 2nd turn (single-use limitation). The orb
+   *    already pulses with a synthetic amplitude during SPEAKING.
+   *  - If the previous turn's audio is still playing, stop it first.
+   */
   const speak = useCallback(
     async (text: string) => {
       if (!text || text.trim().length === 0) return;
+
+      /* Stop any currently-playing TTS so a fast 2nd reply doesn't
+       * stack on top of the previous one. */
+      if (currentAudioRef.current) {
+        try {
+          currentAudioRef.current.pause();
+          currentAudioRef.current.src = "";
+        } catch { /* noop */ }
+        currentAudioRef.current = null;
+      }
+
       setOrbState("SPEAKING");
       try {
         const res = await fetch("/api/voice/tts", {
@@ -180,46 +216,47 @@ export function useVoiceInteraction(
           body: JSON.stringify({ text }),
         });
         if (!res.ok || !res.body) {
-          setLastError(`TTS failed: ${res.status}`);
+          const errBody = await res.text().catch(() => "");
+          setLastError(`TTS failed (${res.status}): ${errBody.slice(0, 160)}`);
           setOrbState("IDLE");
           return;
         }
         const audioBlob = await res.blob();
+        if (!audioBlob || audioBlob.size === 0) {
+          setLastError("TTS returned an empty audio body");
+          setOrbState("IDLE");
+          return;
+        }
         const url = URL.createObjectURL(audioBlob);
 
-        /* Lazy create audio element so analyzer can connect cleanly */
-        if (!audioElementRef.current) {
-          audioElementRef.current = new Audio();
-        }
-        const audio = audioElementRef.current;
+        /* Fresh Audio element per playback — sidesteps the
+         * MediaElementSourceNode singleton trap entirely. */
+        const audio = new Audio();
+        audio.preload = "auto";
         audio.src = url;
-        audio.crossOrigin = "anonymous";
-
-        try {
-          connectAudioElement(audio);
-        } catch (_err) {
-          void _err;
-          /* If analyzer connection fails (e.g. already wired), continue without amplitude */
-        }
+        currentAudioRef.current = audio;
 
         await new Promise<void>((resolve) => {
-          audio.onended = () => {
+          let settled = false;
+          const finish = (errMsg?: string) => {
+            if (settled) return;
+            settled = true;
             URL.revokeObjectURL(url);
-            disconnect();
+            if (currentAudioRef.current === audio) {
+              currentAudioRef.current = null;
+            }
+            if (errMsg) setLastError(errMsg);
             setOrbState("IDLE");
             resolve();
           };
-          audio.onerror = () => {
-            URL.revokeObjectURL(url);
-            disconnect();
-            setOrbState("IDLE");
-            resolve();
-          };
-          audio.play().catch(() => {
-            URL.revokeObjectURL(url);
-            disconnect();
-            setOrbState("IDLE");
-            resolve();
+          audio.onended = () => finish();
+          audio.onerror = () => finish("TTS audio decode / playback error");
+
+          /* play() returns a Promise that rejects when autoplay is
+           * blocked. We bubble that up as a clear error string. */
+          audio.play().catch((err) => {
+            const m = err instanceof Error ? err.message : String(err);
+            finish(`audio.play() rejected: ${m}`);
           });
         });
       } catch (err) {
@@ -227,7 +264,7 @@ export function useVoiceInteraction(
         setOrbState("IDLE");
       }
     },
-    [connectAudioElement, disconnect],
+    [],
   );
 
   const reset = useCallback(() => {
@@ -236,6 +273,13 @@ export function useVoiceInteraction(
     setLastError(null);
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       try { recorderRef.current.stop(); } catch { /* noop */ }
+    }
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+      } catch { /* noop */ }
+      currentAudioRef.current = null;
     }
     disconnect();
   }, [disconnect]);

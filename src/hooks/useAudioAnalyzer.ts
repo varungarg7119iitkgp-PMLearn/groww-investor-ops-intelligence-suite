@@ -47,12 +47,24 @@ export function useAudioAnalyzer(): UseAudioAnalyzerResult {
 
   const ensureContext = useCallback((): AudioContext | null => {
     if (typeof window === "undefined") return null;
-    if (ctxRef.current) return ctxRef.current;
+    if (ctxRef.current) {
+      /* Chromium/Safari start the context in "suspended" state until a
+       * user gesture. Calling resume() inside the same gesture chain
+       * (e.g. the mic click handler) wakes it up. Safe no-op if already
+       * running. */
+      if (ctxRef.current.state === "suspended") {
+        ctxRef.current.resume().catch(() => { /* noop */ });
+      }
+      return ctxRef.current;
+    }
     /* Cast for vendor prefix support */
     const Win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
     const Ctor = Win.AudioContext ?? Win.webkitAudioContext;
     if (!Ctor) return null;
     ctxRef.current = new Ctor();
+    if (ctxRef.current.state === "suspended") {
+      ctxRef.current.resume().catch(() => { /* noop */ });
+    }
     return ctxRef.current;
   }, []);
 
