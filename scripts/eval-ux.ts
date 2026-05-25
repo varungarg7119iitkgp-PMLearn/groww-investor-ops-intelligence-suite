@@ -1,35 +1,25 @@
 /**
- * scripts/eval-ux.ts — Phase 12 UX Structure Eval (Tier 2)
+ * scripts/eval-ux.ts — Phase 12 / Phase 15 UX Structure Eval
  *
- * Runs the pulse-generation route end-to-end against the live Gemini
- * API (NOT a mock) and asserts the Req 6 structural constraints on
- * three dataset sizes (15 / 50 / 100 reviews). Mirrors the eval-rag.ts
- * pattern: standalone, runnable, dependency-free.
- *
- * Usage:
- *   npx tsx scripts/eval-ux.ts
- *
- * Exit code:
- *   0 → gate PASS
- *   1 → gate FAIL or runtime error
- *
- * NOTE: this script ALWAYS uses `reviewsOverride` so it never touches
- * Supabase — it is safe to run in any environment with just GEMINI_API_KEY.
+ * Usage: npx tsx scripts/eval-ux.ts
+ * Phase 15: EVAL_PHASE=15 (default for final run)
  */
 
 /* eslint-disable no-console */
 
 import { POST as pulseGenerate } from "../src/app/api/pulse/generate/route";
-import type { WeeklyPulse } from "../src/types";
+import { recordEvalSuite, summarizeSuite } from "../src/lib/eval-utils";
+import { getPromptForState } from "../src/lib/state-machine";
+import type { EvalResult, WeeklyPulse } from "../src/types";
 
-// Load .env.local using native Node env-file support (Node 21.7+ ships
-// `process.loadEnvFile`; falls back to noop on older runtimes).
 {
   const proc = process as unknown as { loadEnvFile?: (path: string) => void };
   if (typeof proc.loadEnvFile === "function") {
     try { proc.loadEnvFile(".env.local"); } catch { /* ok */ }
   }
 }
+
+const PHASE = Number(process.env.EVAL_PHASE ?? 12);
 
 interface Verdict {
   dataset: number;
@@ -41,14 +31,15 @@ interface Verdict {
   themeCount: number;
   topThreeCount: number;
   piiHits: number;
+  topTheme?: string;
   error?: string;
 }
 
 const PII_RE = [
-  /[A-Z]{5}\d{4}[A-Z]/,                                       // PAN
-  /\b\d{4}\s?\d{4}\s?\d{4}\b/,                                // Aadhaar
-  /\b\d{10}\b/,                                                // 10-digit phone
-  /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Z|a-z]{2,}/,         // email
+  /[A-Z]{5}\d{4}[A-Z]/,
+  /\b\d{4}\s?\d{4}\s?\d{4}\b/,
+  /\b\d{10}\b/,
+  /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Z|a-z]{2,}/,
 ];
 
 function countPII(strings: string[]): number {
@@ -63,7 +54,7 @@ function countPII(strings: string[]): number {
 
 function buildReviews(n: number) {
   return Array.from({ length: n }, (_, i) => ({
-    text:       `Review ${i + 1}: KYC re-verification asked again this week. Statement format also changed. SIP autodebit failed once.`,
+    text:       `Review ${i + 1}: Login Issues and KYC re-verification asked again. Statement format changed. SIP autodebit failed.`,
     starRating: 1 + (i % 5),
     sentiment:  (i % 3 === 0 ? "negative" : i % 3 === 1 ? "neutral" : "positive") as "negative" | "neutral" | "positive",
     reviewDate: "2026-05-20",
@@ -96,6 +87,7 @@ async function evalDataset(size: number): Promise<Verdict> {
     ...p.themes.map((t) => t.name),
   ];
   const piiHits = countPII(allStrings);
+  const topTheme = p.themes?.[0]?.name;
 
   const pass =
     p.wordCount <= 250 &&
@@ -116,45 +108,86 @@ async function evalDataset(size: number): Promise<Verdict> {
     themeCount:    p.themes.length,
     topThreeCount: p.themes.filter((t) => t.isTopThree).length,
     piiHits,
+    topTheme,
   };
 }
 
-async function main() {
-  console.log("[Phase 12 UX Eval] Running pulse-generation against live Gemini…");
-  console.log("[Phase 12 UX Eval] Dataset sizes: 15 / 50 / 100\n");
+export async function runUxEvalSuite(phase = PHASE): Promise<{
+  results: EvalResult[];
+  summary: ReturnType<typeof summarizeSuite>;
+  themeMentionPass: boolean;
+  themeUsed?: string;
+}> {
+  console.log(`[Phase ${phase} UX Eval] Running pulse-generation against live Gemini…`);
+  const verdicts: Verdict[] = [];
 
-  const results: Verdict[] = [];
   for (const n of [15, 50, 100]) {
-    console.log(`[Phase 12 UX Eval]   → dataset = ${n} reviews…`);
+    console.log(`[Phase ${phase} UX Eval]   → dataset = ${n} reviews…`);
     try {
       const v = await evalDataset(n);
-      results.push(v);
+      verdicts.push(v);
       console.log(
         `   words=${v.wordCount}/250  quotes=${v.quoteCount}  actions=${v.actionCount}  themes=${v.themeCount}` +
-          `  topThree=${v.topThreeCount}  pii=${v.piiHits}  attempts=${v.attempts}  →  ${v.pass ? "PASS" : "FAIL"}`,
+          `  →  ${v.pass ? "PASS" : "FAIL"}`,
       );
-      if (v.error) console.log(`   error: ${v.error}`);
     } catch (err) {
-      console.error(`   threw: ${err instanceof Error ? err.message : String(err)}`);
-      results.push({
-        dataset: n,
-        attempts: 0,
-        pass: false,
+      verdicts.push({
+        dataset: n, attempts: 0, pass: false,
         wordCount: 0, quoteCount: 0, actionCount: 0, themeCount: 0, topThreeCount: 0, piiHits: 0,
         error: err instanceof Error ? err.message : String(err),
       });
     }
   }
 
-  console.log("\n[Phase 12 UX Eval] Suite summary");
-  console.log(`  total=${results.length}  pass=${results.filter((r) => r.pass).length}  fail=${results.filter((r) => !r.pass).length}`);
+  const themeUsed = verdicts.find((v) => v.topTheme)?.topTheme ?? "Login Issues";
+  const greetingPrompt = getPromptForState("greeting", { topTheme: themeUsed });
+  const themeMentionPass = greetingPrompt.toLowerCase().includes(themeUsed.toLowerCase());
+  const nowIso = new Date().toISOString();
 
-  const passed = results.every((r) => r.pass);
+  const results: EvalResult[] = verdicts.map((v) => ({
+    eval_type: "ux_structure",
+    eval_name: `P${phase}-UX-${v.dataset}reviews`,
+    input: `${v.dataset} synthetic reviews`,
+    expected: "≤250 words, 3 quotes, 3 actions, PII-free",
+    actual: `words=${v.wordCount} quotes=${v.quoteCount} actions=${v.actionCount} pii=${v.piiHits}`,
+    score: v.pass ? 1 : 0,
+    pass_fail: v.pass,
+    phase,
+    timestamp: nowIso,
+    notes: v.error,
+  }));
+
+  results.push({
+    eval_type: "ux_structure",
+    eval_name: `P${phase}-UX-theme-greeting`,
+    input: `topTheme=${themeUsed}`,
+    expected: "Greeting prompt mentions top theme",
+    actual: themeMentionPass ? "theme present in prompt" : "theme missing",
+    score: themeMentionPass ? 1 : 0,
+    pass_fail: themeMentionPass,
+    phase,
+    timestamp: nowIso,
+  });
+
+  const summary = summarizeSuite("ux_structure", phase, results);
+  await recordEvalSuite(results);
+
+  return { results, summary, themeMentionPass, themeUsed };
+}
+
+async function main() {
+  const { summary, themeMentionPass } = await runUxEvalSuite(PHASE);
+  console.log("\n[UX Eval] Suite summary");
+  console.log(`  total=${summary.totalTests}  pass=${summary.passed}  fail=${summary.failed}`);
+  console.log(`  themeMention=${themeMentionPass ? "PASS ✅" : "FAIL ❌"}`);
+  const passed = summary.passed === summary.totalTests;
   console.log(`  GATE: ${passed ? "PASS ✅" : "FAIL ❌"}`);
   process.exit(passed ? 0 : 1);
 }
 
-main().catch((err) => {
-  console.error("[Phase 12 UX Eval] Fatal:", err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("[UX Eval] Fatal:", err);
+    process.exit(1);
+  });
+}

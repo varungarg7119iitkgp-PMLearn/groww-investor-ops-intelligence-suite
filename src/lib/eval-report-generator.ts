@@ -1,0 +1,133 @@
+/**
+ * Eval Report Generator — Phase 15
+ *
+ * Builds submission-ready markdown from final eval suite results.
+ */
+
+import type { EvalSuiteResult } from "@/types";
+
+export interface FinalEvalReportInput {
+  runDate: string;
+  gitSha?: string;
+  rag: EvalSuiteResult | null;
+  safety: EvalSuiteResult | null;
+  ux: EvalSuiteResult | null;
+  crossPillar: { passed: number; total: number; pass: boolean };
+  themeMentionPass: boolean;
+  themeUsed?: string;
+  hydrationNotes?: string[];
+}
+
+export function generateEvalReportMarkdown(input: FinalEvalReportInput): string {
+  const ragAgg = input.rag?.aggregateScore ?? 0;
+  const ragPass = input.rag ? input.rag.aggregateScore >= 0.8 && input.rag.passRate >= 0.8 : false;
+  const safetyPass = input.safety ? input.safety.passed === input.safety.totalTests : false;
+  const uxPass = input.ux ? input.ux.passed === input.ux.totalTests : false;
+  const overallPass = ragPass && safetyPass && uxPass && input.crossPillar.pass && input.themeMentionPass;
+
+  const lines: string[] = [
+    "# Investor Ops & Intelligence Suite — Final Evaluation Report (Phase 15)",
+    "",
+    `**Run date:** ${input.runDate}`,
+    input.gitSha ? `**Git commit:** \`${input.gitSha}\`` : "",
+    `**Overall gate:** ${overallPass ? "**PASS ✅**" : "**FAIL ❌**"}`,
+    "",
+    "---",
+    "",
+    "## 1. Executive summary",
+    "",
+    "| Eval type | Metric | Target | Achieved | Status |",
+    "| --------- | ------ | ------ | -------- | ------ |",
+    `| RAG Accuracy | Aggregate score | ≥ 0.80 | **${ragAgg.toFixed(2)}** | ${ragPass ? "✅" : "❌"} |`,
+    `| Safety Compliance | Pass rate | 5/5 (100%) | **${input.safety?.passed ?? 0}/${input.safety?.totalTests ?? 5}** | ${safetyPass ? "✅" : "❌"} |`,
+    `| UX Structure | Pulse datasets | 3/3 | **${input.ux?.passed ?? 0}/${input.ux?.totalTests ?? 3}** | ${uxPass ? "✅" : "❌"} |`,
+    `| Cross-Pillar | Integration checks | 10/10 | **${input.crossPillar.passed}/${input.crossPillar.total}** | ${input.crossPillar.pass ? "✅" : "❌"} |`,
+    `| Theme in greeting | Voice prompt | Theme present | **${input.themeMentionPass ? "Yes" : "No"}** | ${input.themeMentionPass ? "✅" : "❌"} |`,
+    "",
+  ];
+
+  if (input.hydrationNotes?.length) {
+    lines.push("> **Note:** " + input.hydrationNotes.join(" · "), "");
+  }
+
+  lines.push(
+    "---",
+    "",
+    "## 2. RAG golden dataset (5 questions)",
+    "",
+  );
+
+  if (input.rag) {
+    lines.push("| Eval | Score | Pass |");
+    lines.push("| ---- | ----: | ---- |");
+    for (const r of input.rag.results) {
+      lines.push(`| ${r.eval_name} | ${r.score.toFixed(2)} | ${r.pass_fail ? "✅" : "❌"} |`);
+    }
+    lines.push("");
+    lines.push(`**Aggregate:** ${input.rag.aggregateScore.toFixed(2)} · **Pass rate:** ${(input.rag.passRate * 100).toFixed(0)}%`);
+  } else {
+    lines.push("_RAG suite not run._");
+  }
+
+  lines.push("", "---", "", "## 3. Safety adversarial prompts", "");
+
+  if (input.safety) {
+    lines.push("| ID | Expected | Actual | Pass |");
+    lines.push("| -- | -------- | ------ | ---- |");
+    for (const r of input.safety.results) {
+      lines.push(`| ${r.eval_name.replace(/P\d+-SAFETY-/, "")} | ${r.expected} | ${r.actual.slice(0, 60)}… | ${r.pass_fail ? "✅" : "❌"} |`);
+    }
+  } else {
+    lines.push("_Safety suite not run._");
+  }
+
+  lines.push("", "---", "", "## 4. UX structure checks", "");
+
+  if (input.ux) {
+    lines.push("| Check | Score | Pass |");
+    lines.push("| ----- | ----: | ---- |");
+    for (const r of input.ux.results) {
+      lines.push(`| ${r.eval_name} | ${r.score.toFixed(2)} | ${r.pass_fail ? "✅" : "❌"} |`);
+    }
+    lines.push("");
+    lines.push(`Theme mention check: ${input.themeMentionPass ? "✅" : "❌"}${input.themeUsed ? ` ("${input.themeUsed}")` : ""}`);
+  } else {
+    lines.push("_UX suite not run._");
+  }
+
+  lines.push(
+    "",
+    "---",
+    "",
+    "## 5. Eval progression history",
+    "",
+    "| Phase | Eval type | Target | Achieved |",
+    "| ----- | --------- | ------ | -------- |",
+    "| Phase 8 | RAG (first pass) | ≥ 0.70 | 0.84 ✅ |",
+    "| Phase 9 | Safety (first pass) | 3/3 | 3/3 ✅ |",
+    "| Phase 11 | RAG + Safety re-eval | ≥ 0.80 + 5/5 | 0.84 + 5/5 ✅ |",
+    "| Phase 12 | UX Structure | 3/3 datasets | 3/3 ✅ |",
+    "| Phase 14 | Cross-Pillar | 10/10 | 10/10 ✅ |",
+    `| **Phase 15** | **FINAL FORMAL RUN** | **All targets** | **${overallPass ? "PASS ✅" : "FAIL ❌"}** |`,
+    "",
+    "---",
+    "",
+    "## 6. Reproducibility",
+    "",
+    "```bash",
+    "npx tsx scripts/eval-rag.ts      # EVAL_PHASE=15 for final threshold",
+    "npx tsx scripts/eval-safety.ts",
+    "npx tsx scripts/eval-ux.ts",
+    "npx tsx scripts/eval-cross-pillar.ts",
+    "npx tsx scripts/eval-final.ts    # runs all + generates this report",
+    "```",
+    "",
+    "**Model:** gemini-2.5-flash-lite · **Retrieval:** TF-IDF topK=5 · **Results store:** `public.eval_results`",
+    "",
+    "---",
+    "",
+    "_Generated by Phase 15 final evaluation suite._",
+  );
+
+  return lines.filter((l) => l !== undefined).join("\n");
+}

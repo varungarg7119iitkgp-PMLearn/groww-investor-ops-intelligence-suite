@@ -14,3 +14,4 @@ export { ModeToggle } from "./ModeToggle";
 export type { ModeToggleProps } from "./ModeToggle";
 export { ModeTransition } from "./ModeTransition";
 export type { ModeTransitionProps } from "./ModeTransition";
+export { CrossPillarSync } from "./CrossPillarSync";

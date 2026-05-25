@@ -7,7 +7,7 @@
  *
  * Composition:
  *   1. AuroraMesh — cinematic background, color shifts via activeMode
- *   2. ModeToggle — neumorphic top-center pill (Investor / Director)
+ *   2. ModeToggle — neumorphic switch in Knowledge Hub header (Investor / Director)
  *   3. ModeTransition — orchestrates the 400ms cross-mode swap
  *      (scanning-line sweep + fade swap between consoles)
  *
@@ -25,7 +25,9 @@ import { useSearchParams } from "next/navigation";
 import {
   AuroraMesh,
   ModeTransition,
+  CrossPillarSync,
 } from "@/components/shared";
+import { TacticalHUDMap } from "@/components/director";
 import { InvestorTerminal } from "@/components/investor-terminal";
 import { DirectorOpsConsole } from "@/components/director-ops";
 import { useUIStore, readPersistedMode } from "@/lib/store";
@@ -58,24 +60,20 @@ function ModeURLSync() {
 }
 
 export default function RootEntry() {
+  const activeMode = useUIStore((s) => s.activeMode);
+  const isDirector = activeMode === "director-ops";
+
   return (
     <>
-      <AuroraMesh />
+      <AuroraMesh hideOrbs={isDirector} />
+      <TacticalHUDMap visible={isDirector} />
 
       <Suspense fallback={null}>
         <ModeURLSync />
       </Suspense>
 
-      {/* ── Conditional console renderer ──
-        * Note: the top-center neumorphic <ModeToggle> was intentionally
-        * removed. Mode switching is driven exclusively by:
-        *   - the floating right-edge "DIRECTOR OPS" tab on Investor Hub
-        *     (`OpsAccessButton`, with cinematic AuthorizingSplash)
-        *   - the "INVESTOR HUB" pill in the Director Ops header
-        *     (`OpsHeader` back-button)
-        * The component itself is still exported + unit-tested, so it can
-        * be re-mounted later if we ever want a visible global switcher.
-        */}
+      <CrossPillarSync />
+
       <ModeTransition
         investorContent={<InvestorTerminal />}
         directorContent={<DirectorOpsConsole />}

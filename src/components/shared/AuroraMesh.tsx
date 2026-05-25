@@ -12,10 +12,16 @@ import { useReducedMotion } from "framer-motion";
  *  4. Grid overlay SVG schematic lines rgba(0,229,255,0.05)
  *  5. Noise texture SVG grain 15% opacity, blend: overlay
  *
- * Source: UI/UX Spec §2.1 The Canvas
+ * Phase 16: `hideOrbs` suppresses violet/emerald orbs in Director Ops mode.
  */
-export function AuroraMesh() {
+export interface AuroraMeshProps {
+  /** When true, fade out investor-terminal aurora orbs (Director Ops active). */
+  hideOrbs?: boolean;
+}
+
+export function AuroraMesh({ hideOrbs = false }: AuroraMeshProps) {
   const prefersReduced = useReducedMotion();
+  const orbOpacity = hideOrbs ? 0 : prefersReduced ? 0 : undefined;
 
   return (
     <div
@@ -40,10 +46,10 @@ export function AuroraMesh() {
           top: "-10vw",
           borderRadius: "50%",
           background: "#7C3AED",
-          opacity: prefersReduced ? 0 : 0.15,
+          opacity: orbOpacity ?? (prefersReduced ? 0 : 0.15),
           filter: "blur(140px)",
           willChange: "transform",
-          transition: "opacity 600ms ease",
+          transition: "opacity 400ms ease-out",
         }}
       />
 
@@ -58,10 +64,10 @@ export function AuroraMesh() {
           bottom: "-15vw",
           borderRadius: "50%",
           background: "#10B981",
-          opacity: prefersReduced ? 0 : 0.12,
+          opacity: orbOpacity ?? (prefersReduced ? 0 : 0.12),
           filter: "blur(160px)",
           willChange: "transform",
-          transition: "opacity 600ms ease",
+          transition: "opacity 400ms ease-out",
         }}
       />
 

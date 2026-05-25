@@ -105,11 +105,14 @@ function timeAgo(iso: string, nowMs = Date.now()): string {
 interface NewsRailProps {
   items?:    NewsItem[];
   onItemClick?: (item: NewsItem) => void;
+  /** When true, news list fills parent column height instead of 60vh cap */
+  fillHeight?: boolean;
 }
 
 export function NewsRail({
   items = MOCK_NEWS,
   onItemClick,
+  fillHeight = false,
 }: NewsRailProps) {
   const [filter, setFilter] = useState<NewsCategory | "ALL">("ALL");
 
@@ -126,12 +129,17 @@ export function NewsRail({
     <aside
       data-testid="news-rail"
       aria-label="Market & product news"
+      className="glass-panel glass-panel-investor"
       style={{
         width:          "100%",
         maxWidth:       "100%",
+        height:         fillHeight ? "100%" : undefined,
+        minHeight:      fillHeight ? 0 : undefined,
+        padding:        "20px",
         display:        "flex",
         flexDirection:  "column",
         gap:            "12px",
+        overflow:       "hidden",
       }}
     >
       {/* ── Header ── */}
@@ -228,7 +236,9 @@ export function NewsRail({
           display:        "flex",
           flexDirection:  "column",
           gap:            "8px",
-          maxHeight:      "60vh",
+          ...(fillHeight
+            ? { flex: 1, minHeight: 0 }
+            : { maxHeight: "60vh" }),
           overflowY:      "auto",
           paddingRight:   "2px",
         }}

@@ -3,10 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
+    "lint": "eslint",
+    "eval:rag": "npx tsx scripts/eval-rag.ts",
+    "eval:safety": "npx tsx scripts/eval-safety.ts",
+    "eval:ux": "npx tsx scripts/eval-ux.ts",
+    "eval:cross-pillar": "npx tsx scripts/eval-cross-pillar.ts",
+    "eval:final": "npx tsx scripts/eval-final.ts",
+    "test": "vitest run",
+    "verify:deliverables": "npx tsx scripts/verify-deliverables.ts",
+    "audit:routes": "npx tsx scripts/audit-routes-direct.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.49.1",

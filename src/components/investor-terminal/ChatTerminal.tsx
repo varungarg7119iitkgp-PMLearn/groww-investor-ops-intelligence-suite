@@ -317,6 +317,8 @@ interface ChatTerminalProps {
   citationsByMessageId?: Record<string, Citation[]>;
   /** ISO-8601 last-updated timestamp keyed by message ID (Phase 8+ Smart-Sync) */
   lastUpdatedByMessageId?: Record<string, string>;
+  /** When true, message log fills parent flex column instead of 60vh cap */
+  fillHeight?: boolean;
 }
 
 /* ── Main ChatTerminal component ────────────────────────────── */
@@ -326,6 +328,7 @@ export function ChatTerminal({
   bulletsByMessageId  = {},
   citationsByMessageId = {},
   lastUpdatedByMessageId = {},
+  fillHeight          = false,
 }: ChatTerminalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -342,17 +345,23 @@ export function ChatTerminal({
       initial="hidden"
       animate="visible"
       style={{
-        width:    "100%",
-        maxWidth: "100%",
-        position: "relative",
+        width:          "100%",
+        maxWidth:       "100%",
+        position:       "relative",
+        ...(fillHeight
+          ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }
+          : {}),
       }}
     >
       {/* Glass Panel container */}
       <div
         className="glass-panel"
         style={{
-          padding:   "0",
-          overflow:  "hidden",
+          padding:        "0",
+          overflow:       "hidden",
+          ...(fillHeight
+            ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }
+            : {}),
         }}
       >
         {/* Terminal header bar */}
@@ -398,10 +407,12 @@ export function ChatTerminal({
         <div
           ref={scrollRef}
           style={{
-            maxHeight:   "60vh",
-            overflowY:   "auto",
-            padding:     "20px 20px 8px 20px",
-            display:     "flex",
+            ...(fillHeight
+              ? { flex: 1, minHeight: 0 }
+              : { maxHeight: "60vh" }),
+            overflowY:     "auto",
+            padding:       "20px 20px 8px 20px",
+            display:       "flex",
             flexDirection: "column",
           }}
           role="log"

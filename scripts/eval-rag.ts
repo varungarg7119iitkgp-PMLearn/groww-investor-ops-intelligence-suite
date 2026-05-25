@@ -86,7 +86,7 @@ interface JudgeScores {
   comments: string;
 }
 
-async function runOne(g: GoldenQuestion): Promise<EvalResult[]> {
+async function runOne(g: GoldenQuestion, phase: number, threshold: number): Promise<EvalResult[]> {
   const nowIso = new Date().toISOString();
   const ident = await identifyFunds(g.question);
   const retrieved = await retrieveTopK(g.question, {
@@ -126,8 +126,8 @@ async function runOne(g: GoldenQuestion): Promise<EvalResult[]> {
       expected: g.expectedSources.join(" + "),
       actual: `faith=${faithfulness.toFixed(2)} retrieved=${retrieved.length}`,
       score: faithfulness,
-      pass_fail: faithfulness >= 0.7,
-      phase: 8,
+      pass_fail: faithfulness >= threshold,
+      phase,
       timestamp: nowIso,
       notes: judge.comments,
     },
@@ -138,8 +138,8 @@ async function runOne(g: GoldenQuestion): Promise<EvalResult[]> {
       expected: g.expectedSources.join(" + "),
       actual: `rel=${relevance.toFixed(2)} retrieved=${retrieved.length}`,
       score: relevance,
-      pass_fail: relevance >= 0.7,
-      phase: 8,
+      pass_fail: relevance >= threshold,
+      phase,
       timestamp: nowIso,
       notes: judge.comments,
     },
@@ -151,14 +151,17 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-export async function main(): Promise<void> {
-  console.log("[Phase 8 Eval] Running 5-question RAG accuracy suite with LLM-judge…");
+export async function runRagEvalSuite(
+  phase = Number(process.env.EVAL_PHASE ?? 8),
+  threshold = phase >= 15 ? 0.8 : 0.7,
+): Promise<ReturnType<typeof summarizeSuite>> {
+  console.log(`[Phase ${phase} Eval] Running 5-question RAG accuracy suite with LLM-judge…`);
   const allResults: EvalResult[] = [];
 
   for (const g of GOLDEN_SET) {
     try {
       console.log(`  → ${g.id}: "${g.question.slice(0, 60)}…"`);
-      const rows = await runOne(g);
+      const rows = await runOne(g, phase, threshold);
       allResults.push(...rows);
       const f = rows.find((r) => r.eval_name.endsWith("-faithfulness"));
       const r = rows.find((r) => r.eval_name.endsWith("-relevance"));
@@ -168,17 +171,28 @@ export async function main(): Promise<void> {
     }
   }
 
-  const summary = summarizeSuite("rag_accuracy", 8, allResults);
-  console.log("\n[Phase 8 Eval] Suite Summary");
+  const summary = summarizeSuite("rag_accuracy", phase, allResults);
+  console.log("\n[Phase RAG Eval] Suite Summary");
   console.log(`  total=${summary.totalTests} pass=${summary.passed} fail=${summary.failed}`);
   console.log(`  aggregateScore=${summary.aggregateScore} passRate=${summary.passRate}`);
-  console.log(`  GATE: ${summary.aggregateScore >= 0.7 && summary.passRate >= 0.7 ? "PASS ✅" : "FAIL ✗"}`);
+  console.log(`  GATE: ${summary.aggregateScore >= threshold && summary.passRate >= threshold ? "PASS ✅" : "FAIL ✗"}`);
 
   const persist = await recordEvalSuite(allResults);
   if (persist.error) {
-    console.error("[Phase 8 Eval] Failed to persist to Supabase:", persist.error);
+    console.error("[RAG Eval] Failed to persist:", persist.error);
   } else {
-    console.log(`[Phase 8 Eval] Persisted ${persist.data?.inserted ?? 0} rows to eval_results.`);
+    console.log(`[RAG Eval] Persisted ${persist.data?.inserted ?? 0} rows to eval_results.`);
+  }
+
+  return summary;
+}
+
+export async function main(): Promise<void> {
+  const phase = Number(process.env.EVAL_PHASE ?? 8);
+  const threshold = phase >= 15 ? 0.8 : 0.7;
+  const summary = await runRagEvalSuite(phase, threshold);
+  if (summary.aggregateScore < threshold || summary.passRate < threshold) {
+    process.exit(1);
   }
 }
 

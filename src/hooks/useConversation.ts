@@ -1,22 +1,18 @@
 /**
- * useConversation — Phase 11
+ * useConversation — Phase 11 / Phase 14
  *
- * Wraps the voice-agent conversation lifecycle:
- *   - Maintains `ConversationState` between turns
- *   - Calls `/api/voice/converse` with each (transcript|text)
- *   - Returns assistantText + updated state + meta
- *   - Surfaces theme-aware greeting on first turn (if data available)
- *
- * This hook is UI-agnostic — used by both the voice loop
- * (`useVoiceInteraction.onTranscript`) and the text fallback.
+ * Wraps the voice-agent conversation lifecycle with Zustand-backed
+ * state so mode switches preserve the voice session.
  */
 
 import { useCallback, useRef, useState } from "react";
 import {
   type ConversationState,
   type AgentVisualState,
+  type BookingSummary,
   createInitialConversationState,
 } from "@/types";
+import { useUIStore } from "@/lib/store";
 
 export interface ConversationTurnResult {
   assistantText: string;
@@ -39,13 +35,16 @@ export interface UseConversationResult {
 }
 
 export function useConversation(): UseConversationResult {
-  const [state, setState] = useState<ConversationState>(() =>
-    createInitialConversationState(generateSessionId()),
-  );
+  const storeState = useUIStore((s) => s.conversationState);
+  const setConversationState = useUIStore((s) => s.setConversationState);
+  const topTheme = useUIStore((s) => s.topTheme);
+  const setBookingStatus = useUIStore((s) => s.setBookingStatus);
+  const addBookingSummary = useUIStore((s) => s.addBookingSummary);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const stateRef = useRef(storeState);
+  stateRef.current = storeState;
 
   const send = useCallback(async (userInput: string): Promise<ConversationTurnResult | null> => {
     setIsProcessing(true);
@@ -57,6 +56,7 @@ export function useConversation(): UseConversationResult {
         body: JSON.stringify({
           userInput,
           conversationState: stateRef.current,
+          topThemeOverride: topTheme ?? undefined,
         }),
       });
       if (!res.ok) {
@@ -71,7 +71,25 @@ export function useConversation(): UseConversationResult {
         orbState: AgentVisualState;
         meta: { latencyMs: number; model: string; complianceFlag: string };
       };
-      setState(data.conversationState);
+
+      setConversationState(data.conversationState);
+
+      /* Phase 14 — sync booking code to shared state when generated */
+      if (data.conversationState.bookingCode) {
+        const code = data.conversationState.bookingCode;
+        setBookingStatus(code, "pending");
+        const summary: BookingSummary = {
+          bookingCode: code,
+          investorNameRedacted: "[REDACTED]",
+          topic: data.conversationState.topic ?? "kyc",
+          proposedSlot: new Date(Date.now() + 86400000).toISOString(),
+          advisorEmail: "advisor@groww.in",
+          status: "pending_review",
+          contextNotes: data.conversationState.lastUserInput ?? "",
+        };
+        addBookingSummary(summary);
+      }
+
       return {
         assistantText: data.assistantText,
         state: data.conversationState,
@@ -86,14 +104,14 @@ export function useConversation(): UseConversationResult {
     } finally {
       setIsProcessing(false);
     }
-  }, []);
+  }, [topTheme, setConversationState, setBookingStatus, addBookingSummary]);
 
   const resetConversation = useCallback(() => {
-    setState(createInitialConversationState(generateSessionId()));
+    setConversationState(createInitialConversationState(generateSessionId()));
     setLastError(null);
-  }, []);
+  }, [setConversationState]);
 
-  return { state, isProcessing, lastError, send, resetConversation };
+  return { state: storeState, isProcessing, lastError, send, resetConversation };
 }
 
 function generateSessionId(): string {

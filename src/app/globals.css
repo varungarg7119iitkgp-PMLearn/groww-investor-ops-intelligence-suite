@@ -483,3 +483,48 @@ body {
   font-size: 0.8em;
   line-height: 1;
 }
+
+/* ----------------------------------------------------------
+   PHASE 16 — Tactical HUD Map tokens & motion
+   ---------------------------------------------------------- */
+:root {
+  --map-silhouette-fill: rgba(255, 171, 0, 0.04);
+  --map-silhouette-stroke: rgba(255, 171, 0, 0.12);
+  --map-grid-line: rgba(255, 171, 0, 0.06);
+  --map-node-primary: rgba(255, 171, 0, 0.90);
+  --map-node-pulse: rgba(255, 171, 0, 0.35);
+  --map-arc-base: rgba(255, 171, 0, 0.20);
+  --map-arc-active: rgba(255, 171, 0, 0.45);
+  --map-entrance-duration: 1200ms;
+}
+
+@keyframes tactical-node-pulse {
+  0%   { r: 7; opacity: 0.35; }
+  100% { r: 14; opacity: 0; }
+}
+
+@keyframes tactical-arc-travel {
+  to { stroke-dashoffset: -32; }
+}
+
+@keyframes ticker-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.ticker-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 229, 255, 0.04) 0%,
+    rgba(0, 229, 255, 0.12) 50%,
+    rgba(0, 229, 255, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  animation: ticker-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  .tactical-hud-map {
+    display: none !important;
+  }
+}

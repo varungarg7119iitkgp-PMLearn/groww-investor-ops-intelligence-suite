@@ -165,26 +165,26 @@ const SAMPLE_CITATION: Citation = {
    ======================================================== */
 describe("MarqueeTicker", () => {
   it("renders the ticker container with correct role and aria-label", () => {
-    const { container } = render(<MarqueeTicker />);
+    const { container } = render(<MarqueeTicker disableLiveFetch />);
     const marquee = container.querySelector('[role="marquee"]');
     expect(marquee).not.toBeNull();
     expect(marquee?.getAttribute("aria-label")).toContain("mutual fund");
   });
 
   it("renders a LIVE indicator", () => {
-    render(<MarqueeTicker />);
+    render(<MarqueeTicker disableLiveFetch />);
     expect(screen.getByLabelText("Live data")).toBeTruthy();
   });
 
   it("applies ticker-track class for CSS animation", () => {
-    const { container } = render(<MarqueeTicker />);
+    const { container } = render(<MarqueeTicker disableLiveFetch />);
     const track = container.querySelector(".ticker-track");
     expect(track).not.toBeNull();
   });
 
   it("calls onItemClick with fund name when a chip is clicked", () => {
     const onItemClick = vi.fn();
-    const { container } = render(<MarqueeTicker onItemClick={onItemClick} />);
+    const { container } = render(<MarqueeTicker disableLiveFetch onItemClick={onItemClick} />);
     const buttons = container.querySelectorAll("button[type='button']");
     expect(buttons.length).toBeGreaterThan(0);
     fireEvent.click(buttons[0]);
@@ -221,7 +221,7 @@ describe("MarqueeTicker", () => {
   });
 
   it("renders with custom animationDuration", () => {
-    const { container } = render(<MarqueeTicker animationDuration={30} />);
+    const { container } = render(<MarqueeTicker disableLiveFetch animationDuration={30} />);
     const track = container.querySelector(".ticker-track") as HTMLElement;
     expect(track?.style.animationDuration).toBe("30s");
   });
@@ -672,7 +672,7 @@ describe("MOCK_TICKER_DATA integrity", () => {
    ======================================================== */
 describe("Accessibility", () => {
   it("MarqueeTicker has aria-label on the root", () => {
-    const { container } = render(<MarqueeTicker />);
+    const { container } = render(<MarqueeTicker disableLiveFetch />);
     const el = container.querySelector('[role="marquee"]');
     expect(el?.getAttribute("aria-label")).toBeTruthy();
   });

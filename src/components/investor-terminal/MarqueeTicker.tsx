@@ -132,17 +132,19 @@ export function MarqueeTicker({
   /* Initial state: caller-supplied items, else local fixture.
    * useEffect below upgrades to live Supabase data once mounted. */
   const [tickerItems, setTickerItems] = useState<TickerItem[]>(items ?? MOCK_TICKER_DATA);
+  const [isLoading, setIsLoading] = useState(!items && !disableLiveFetch);
 
   useEffect(() => {
-    if (disableLiveFetch || items) return; // explicit caller override wins
+    if (disableLiveFetch || items) return;
     let cancelled = false;
     (async () => {
+      setIsLoading(true);
       const res = await getTickerData();
       if (cancelled) return;
       if (res.data && res.data.length > 0) {
         setTickerItems(res.data);
       }
-      /* Silent fallback on error — fixture data already on screen. */
+      setIsLoading(false);
     })();
     return () => { cancelled = true; };
   }, [disableLiveFetch, items]);
@@ -163,7 +165,15 @@ export function MarqueeTicker({
       }}
       role="marquee"
       aria-label="Live mutual fund NAV ticker"
+      data-loading={isLoading ? "true" : "false"}
     >
+      {isLoading && (
+        <div
+          className="ticker-shimmer absolute inset-0 z-[5] pointer-events-none"
+          aria-hidden="true"
+          data-testid="ticker-loading-shimmer"
+        />
+      )}
       {/* Left fade mask */}
       <div
         className="pointer-events-none absolute left-0 top-0 bottom-0 w-16 z-10"

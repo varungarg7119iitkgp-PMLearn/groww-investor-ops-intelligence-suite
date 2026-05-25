@@ -217,6 +217,10 @@ const ADVICE_PHRASES: RegExp[] = [
   /\bguarantee(d)?\b.{0,30}\b(return|profit|nav|fund|sip|investment|%)/i,
   /\b(good|safe|best)\s+(buy|investment|pick|choice|option)\b/i,
   /\bgood\s+(fund|funds)\b/i,
+  /\bexactly\s+where\s+to\s+invest\b/i,
+  /\bwhich\s+fund\s+will\s+give\b/i,
+  /\btell\s+me\s+(exactly\s+)?where\s+to\s+invest\b/i,
+  /\b\d+%\s+returns?\s+next\s+year\b/i,
 ];
 
 const OUTPUT_ADVICE_PHRASES: RegExp[] = [
@@ -249,6 +253,9 @@ const OFF_TOPIC_PATTERNS: RegExp[] = [
   /\b(insurance|term\s+plan|life\s+insurance|health\s+insurance)\b/i,
   /\b(personal\s+loan|home\s+loan|credit\s+card|emi)\b/i,
   /\bcommodity\s+(future|trading)\b/i,
+  /\bpersonal\s+(email|mobile|phone|contact\s+details?|number)\b/i,
+  /\b(ceo|director|manager).{0,40}(email|mobile|phone|contact)/i,
+  /\b(email|mobile|phone|contact).{0,40}(ceo|director|personal)/i,
 ];
 
 export function isOutOfScope(query: string): boolean {

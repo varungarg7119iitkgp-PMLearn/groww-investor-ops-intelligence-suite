@@ -16,6 +16,7 @@
  */
 
 import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import type {
   ApiResponse,
   Fund,
@@ -315,6 +316,15 @@ export async function getLatestPulseTheme(): Promise<ApiResponse<string | null>>
   }
 }
 
+/** Prefer service-role for server writes; fall back to anon when RLS allows. */
+function getWriteClient() {
+  try {
+    return getSupabaseAdminClient();
+  } catch {
+    return getSupabaseClient();
+  }
+}
+
 /* ════════════════════════════════════════════════════════════════════
    PHASE 12 — PULSE & REVIEW WRITE PATHS
    ════════════════════════════════════════════════════════════════════ */
@@ -398,7 +408,7 @@ export async function insertReviews(
   if (rows.length === 0) return apiSuccess({ inserted: 0 });
 
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getWriteClient();
     let inserted = 0;
     for (let i = 0; i < rows.length; i += REVIEW_INSERT_BATCH_SIZE) {
       const batch = rows.slice(i, i + REVIEW_INSERT_BATCH_SIZE);
@@ -448,7 +458,7 @@ export async function insertWeeklyPulse(
   args: InsertPulseArgs,
 ): Promise<ApiResponse<WeeklyPulse>> {
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getWriteClient();
     const payload = {
       app_id:        GROWW_APP_ID,
       pulse_content: args.pulseContent,

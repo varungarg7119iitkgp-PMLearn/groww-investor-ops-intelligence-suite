@@ -10,7 +10,7 @@
  *   - Output guard re-runs on assistant text
  */
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
 
 const chatMock = vi.fn();
 vi.mock("@/lib/gemini", () => ({
@@ -22,6 +22,16 @@ vi.mock("@/lib/data", () => ({
   getLatestPulseTheme: () => getLatestPulseThemeMock(),
 }));
 
+vi.mock("@/lib/approval-bridge", () => ({
+  createApprovalItem: vi.fn().mockResolvedValue({ id: "mock-approval" }),
+}));
+
+/* Warm-import route once — avoids cold-start timeout in first test */
+let routeModule: typeof import("@/app/api/voice/converse/route");
+beforeAll(async () => {
+  routeModule = await import("@/app/api/voice/converse/route");
+}, 120_000);
+
 beforeEach(() => {
   chatMock.mockReset();
   getLatestPulseThemeMock.mockReset();
@@ -29,7 +39,7 @@ beforeEach(() => {
 });
 
 async function callConverse(body: unknown) {
-  const { POST } = await import("@/app/api/voice/converse/route");
+  const { POST } = routeModule;
   const req = new Request("http://localhost/api/voice/converse", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

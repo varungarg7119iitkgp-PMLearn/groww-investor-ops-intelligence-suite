@@ -1,0 +1,16 @@
+review_id,author,rating,text,date,platform,sentiment
+phase12-manual-001,Investor_A,2,KYC re-verification asked again this week. Upload loop is frustrating.,2026-05-20,csv,negative
+phase12-manual-002,Investor_B,1,SIP autodebit failed on May 15. Got SMS but no in-app fix path.,2026-05-21,csv,negative
+phase12-manual-003,Investor_C,3,FY26 capital gains statement format changed. Hard to read dividend vs growth.,2026-05-22,csv,neutral
+phase12-manual-004,Investor_D,4,Onboarding was smooth after the latest app update. Good experience.,2026-05-22,csv,positive
+phase12-manual-005,Investor_E,2,Nominee update flow timed out twice before succeeding.,2026-05-23,csv,negative
+phase12-manual-006,Investor_F,3,Login OTP delay during peak hours needs improvement.,2026-05-23,csv,negative
+phase12-manual-007,Investor_G,5,Redemption to bank was fast. Happy with T+2 settlement.,2026-05-23,csv,positive
+phase12-manual-008,Investor_H,2,Statement download password instructions unclear in help center.,2026-05-24,csv,negative
+phase12-manual-009,Investor_I,1,Mandate failure window not communicated before debit date.,2026-05-24,csv,negative
+phase12-manual-010,Investor_J,3,Need clearer copy on exit load for hybrid funds.,2026-05-24,csv,neutral
+phase12-manual-011,Investor_K,2,App crashed once during CAS download on Android 14.,2026-05-24,csv,negative
+phase12-manual-012,Investor_L,4,SIP pause feature works as expected. Useful for cash flow.,2026-05-24,csv,positive
+phase12-manual-013,Investor_M,2,Re-KYC banner keeps reappearing after successful upload.,2026-05-24,csv,negative
+phase12-manual-014,Investor_N,3,Tax statement labels need glossary links for new investors.,2026-05-24,csv,neutral
+phase12-manual-015,Investor_O,2,Support chat wait time increased this week for payment issues.,2026-05-24,csv,negative

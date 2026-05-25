@@ -77,7 +77,7 @@ const MOCK_PULSE: WeeklyPulse = {
     "Ship a guided KYC re-verification flow with explicit reason codes; eliminate blind re-uploads.",
     "Publish a Finance Bill 2026 statement-format explainer card; pin to the Investments tab.",
     "Trigger proactive in-app banner 48h before known mandate-failure windows on partner banks.",
-  ],
+  ], // exactly 3 — Req 6
   createdAt: "2026-05-24T08:00:00.000Z",
 };
 
@@ -193,6 +193,7 @@ export function DirectorOpsConsole() {
   const setHitlItems         = useUIStore((s) => s.setHitlItems);
   const setTopTheme          = useUIStore((s) => s.setTopTheme);
   const setMarketContext     = useUIStore((s) => s.setMarketContext);
+  const updateHitlStatus     = useUIStore((s) => s.updateHitlStatus);
 
   /* Locally-derived UI state. */
   const [checkedActions,  setCheckedActions]= useState<boolean[]>([false, false, false]);
@@ -210,26 +211,40 @@ export function DirectorOpsConsole() {
   const isGenerating = isStoreGenerating;
   const items        = storeItems.length > 0 ? storeItems : MOCK_APPROVALS;
 
-  /* First-mount: hydrate from /api/pulse/latest */
+  /* First-mount: hydrate pulse + HITL queue from live API */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch("/api/pulse/latest", { cache: "no-store" });
-        if (!r.ok || cancelled) return;
-        const json = await r.json();
-        const live: WeeklyPulse | null = json?.pulse ?? null;
+        const [pulseRes, approvalsRes] = await Promise.all([
+          fetch("/api/pulse/latest", { cache: "no-store" }),
+          fetch("/api/approvals", { cache: "no-store" }),
+        ]);
         if (cancelled) return;
-        if (live) {
-          setPulseData(live);
-          const top = live.themes?.[0];
-          if (top?.name) setTopTheme(top.name);
-          setMarketContext(live.summaryText.slice(0, 240));
+
+        if (pulseRes.ok) {
+          const json = await pulseRes.json();
+          const live: WeeklyPulse | null = json?.pulse ?? null;
+          if (live) {
+            setPulseData(live);
+            const top = live.themes?.[0];
+            if (top?.name) setTopTheme(top.name);
+            setMarketContext(live.summaryText.slice(0, 240));
+          } else {
+            setPulseData(MOCK_PULSE);
+            setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
+            setMarketContext(MOCK_PULSE.summaryText.slice(0, 240));
+          }
         } else {
-          /* No live pulse yet — seed UI with the mock so demo is still useful. */
           setPulseData(MOCK_PULSE);
           setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
-          setMarketContext(MOCK_PULSE.summaryText.slice(0, 240));
+        }
+
+        if (approvalsRes.ok) {
+          const aJson = await approvalsRes.json();
+          if (aJson?.items?.length > 0) {
+            setHitlItems(aJson.items as ApprovalItem[]);
+          }
         }
       } catch {
         if (!cancelled) {
@@ -314,23 +329,58 @@ export function DirectorOpsConsole() {
     [storeItems, setHitlItems],
   );
 
-  const handleAuthorize = useCallback((id: string, updatedEmail?: string) => {
-    updateItems((prev) =>
-      prev.map((i) =>
-        i.id === id
-          ? { ...i, status: "authorized", authorizedAt: new Date().toISOString(), emailDraft: updatedEmail ?? i.emailDraft }
-          : i,
-      ),
-    );
-  }, [updateItems]);
+  const handleAuthorize = useCallback(async (id: string, updatedEmail?: string) => {
+    const item = items.find((i) => i.id === id);
+    updateHitlStatus(id, "authorized");
+    if (item) {
+      updateItems((prev) =>
+        prev.map((i) =>
+          i.id === id
+            ? { ...i, emailDraft: updatedEmail ?? i.emailDraft }
+            : i,
+        ),
+      );
+    }
+    try {
+      const r = await fetch("/api/approvals/authorize", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, emailDraft: updatedEmail }),
+      });
+      if (!r.ok) {
+        const json = await r.json().catch(() => ({}));
+        if (json.calendarFailed) {
+          setGenError("Calendar event failed — authorize saved but calendar needs retry.");
+        } else {
+          setGenError(json.error ?? `Authorize failed (${r.status})`);
+          updateItems((prev) => prev.map((i) => i.id === id ? { ...i, status: "pending_review" } : i));
+        }
+      }
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Authorize request failed");
+      updateItems((prev) => prev.map((i) => i.id === id ? { ...i, status: "pending_review" } : i));
+    }
+  }, [items, updateItems, updateHitlStatus]);
 
-  const handleOverride = useCallback((id: string, reason?: string) => {
-    updateItems((prev) =>
-      prev.map((i) =>
-        i.id === id ? { ...i, status: "rejected", overrideReason: reason ?? "Operator override" } : i,
-      ),
-    );
-  }, [updateItems]);
+  const handleOverride = useCallback(async (id: string, reason?: string) => {
+    const overrideReason = reason ?? window.prompt("Override reason (optional):") ?? "Operator override";
+    updateHitlStatus(id, "rejected", overrideReason);
+    try {
+      const r = await fetch("/api/approvals/override", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, reason: overrideReason }),
+      });
+      if (!r.ok) {
+        const json = await r.json().catch(() => ({}));
+        setGenError(json.error ?? `Override failed (${r.status})`);
+        updateItems((prev) => prev.map((i) => i.id === id ? { ...i, status: "pending_review" } : i));
+      }
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Override request failed");
+      updateItems((prev) => prev.map((i) => i.id === id ? { ...i, status: "pending_review" } : i));
+    }
+  }, [updateItems, updateHitlStatus]);
 
   const handleEmailEdit = useCallback((id: string, newDraft: string) => {
     updateItems((prev) => prev.map((i) => (i.id === id ? { ...i, emailDraft: newDraft } : i)));
@@ -482,7 +532,7 @@ export function DirectorOpsConsole() {
               padding:       "12px 0 24px",
             }}
           >
-            PHASE 6 SHELL · MODE SWITCHER WIRED · BACKEND → PHASE 7+
+            PHASE 14 · CROSS-PILLAR INTEGRATION LIVE · HITL + STATE SYNC ACTIVE
           </footer>
         </div>
       </div>

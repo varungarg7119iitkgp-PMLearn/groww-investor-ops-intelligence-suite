@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { ModeToggle } from "@/components/shared";
 
 interface KnowledgeHubHeaderProps {
   investorName?: string;
@@ -49,8 +50,8 @@ export function KnowledgeHubHeader({
         flexDirection:  "column",
         alignItems:     "center",
         textAlign:      "center",
-        padding:        "12px 24px 8px",
-        gap:            "8px",
+        padding:        "6px 24px 4px",
+        gap:            "6px",
         maxWidth:       "880px",
         margin:         "0 auto",
       }}
@@ -63,7 +64,7 @@ export function KnowledgeHubHeader({
           gap:        "10px",
           flexWrap:   "wrap",
           justifyContent: "center",
-          marginBottom:   "6px",
+          marginBottom:   "4px",
         }}
       >
         <span
@@ -135,6 +136,9 @@ export function KnowledgeHubHeader({
       >
         GROWW <span style={{ color: "var(--color-investor)" }}>INVESTOR</span> KNOWLEDGE HUB
       </h1>
+
+      {/* ── Global mode switch (replaces floating Director Ops tab) ── */}
+      <ModeToggle widthPx={380} />
 
       {/* ── Tagline ── */}
       <p

@@ -40,6 +40,10 @@ import {
   buildOutOfScopeResponse,
   buildAdviceBlockResponse,
 } from "@/lib/prompts";
+import {
+  isBookingStatusQuery,
+  buildBookingStatusAnswer,
+} from "@/lib/booking-status-query";
 
 /* ────────── Types ────────── */
 
@@ -47,6 +51,8 @@ export interface ChatRequestBody {
   query: string;
   /** Reserved for future use (multi-turn). Ignored in Phase 8. */
   history?: Array<{ role: string; content: string }>;
+  /** Phase 14 — client-side booking status cache for cross-pillar queries */
+  bookingStatuses?: Record<string, "pending" | "approved" | "rejected">;
 }
 
 export interface ChatAnswer {
@@ -114,6 +120,24 @@ export async function POST(req: Request) {
     return NextResponse.json(
       { error: "`query` exceeds 1000 character limit" },
       { status: 400 },
+    );
+  }
+
+  /* 2b. Phase 14 — Booking status cross-pillar query */
+  if (isBookingStatusQuery(query)) {
+    const answer = await buildBookingStatusAnswer(query, body.bookingStatuses);
+    return NextResponse.json(
+      buildResponseEnvelope({
+        answer,
+        meta: {
+          lastUpdated: nowIso,
+          retrievedSources: 0,
+          latencyMs: Date.now() - started,
+          model: "booking-status",
+          feeExplainerInvoked: false,
+          fundsIdentified: [],
+        },
+      }),
     );
   }
 

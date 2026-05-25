@@ -67,6 +67,7 @@ import {
   getComplianceResponse,
 } from "@/lib/compliance";
 import { getLatestPulseTheme } from "@/lib/data";
+import { createApprovalItem } from "@/lib/approval-bridge";
 
 /* ════════════════════════════════════════════════════════════════════
    TYPES
@@ -75,6 +76,8 @@ import { getLatestPulseTheme } from "@/lib/data";
 interface RequestBody {
   userInput: string;
   conversationState?: ConversationState;
+  /** Phase 14 — Zustand topTheme takes precedence over Supabase fetch */
+  topThemeOverride?: string;
 }
 
 interface ResponseShape {
@@ -162,7 +165,7 @@ export async function POST(req: Request) {
 
   /* Booking sub-flow: detect topic + context + slot collection */
   const topic = state.topic ?? classifyTopic(userInput);
-  const bookingComplete = !!(topic && state.toolCallsMade.includes("generate_booking_code_and_notes"));
+  const bookingComplete = !!(topic && (state.toolCallsMade ?? []).includes("generate_booking_code_and_notes"));
 
   const userRequestedEnd = /\b(bye|goodbye|that's all|thanks bye|end)\b/i.test(userInput);
   const userConfirmed = /\b(yes|yeah|confirm|sure|please|book it|do it)\b/i.test(userInput) && state.step === "booking_confirmation";
@@ -175,14 +178,16 @@ export async function POST(req: Request) {
   });
 
   /* ── 3. Theme-aware greeting (Pillar B → C) ──────────────── */
-  let topTheme: string | undefined;
-  if (nextStep === "greeting" && !state.themeGreeting) {
+  let topTheme: string | undefined = body.topThemeOverride;
+  if (nextStep === "greeting" && !state.themeGreeting && !topTheme) {
     try {
       const theme = await getLatestPulseTheme();
       if (theme.data) topTheme = theme.data;
     } catch {
       /* Pulse not available — proceed without theme */
     }
+  } else if (!topTheme && state.themeGreeting) {
+    topTheme = state.themeGreeting;
   }
 
   /* ── 4. Build voice system prompt ────────────────────────── */
@@ -219,8 +224,8 @@ export async function POST(req: Request) {
       toolDispatcher: async (name, args) => {
         const r = await executeVoiceToolCall(name, args, { sessionId: state.sessionId });
         /* Track tool calls on state for sub-flow logic */
-        state = { ...state, toolCallsMade: [...state.toolCallsMade, r.toolName] };
-        /* If booking-code generated, capture it on state */
+        state = { ...state, toolCallsMade: [...(state.toolCallsMade ?? []), r.toolName] };
+        /* If booking-code generated, capture it on state + create approval item */
         if (r.toolName === "generate_booking_code_and_notes" && r.ok) {
           const code = r.output?.bookingCode;
           if (typeof code === "string") {
@@ -229,6 +234,14 @@ export async function POST(req: Request) {
               bookingCode: code as `NL-${string}`,
               topic: (r.output?.topic as ConversationState["topic"]) ?? state.topic,
             };
+            // Phase 13: create pending approval item asynchronously
+            createApprovalItem({
+              bookingCode: code,
+              topic: (r.output?.topic as string) ?? state.topic ?? "kyc",
+              proposedSlot: (r.output?.proposedSlot as string) ?? new Date(Date.now() + 86400000).toISOString(),
+              investorNameRedacted: "[REDACTED]",
+              userContext: (r.output?.contextNotes as string) ?? undefined,
+            }).catch(() => { /* non-blocking */ });
           }
         }
         return r;

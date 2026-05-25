@@ -31,6 +31,7 @@ import {
   type BookingSummary,
   type BookingWidgetState,
   type ChatMessage,
+  type Citation,
   type ConversationState,
   type UIState,
   type WeeklyPulse,
@@ -103,6 +104,13 @@ const INITIAL_CONVERSATION: ConversationState = createInitialConversationState(
  *   - setChatMessages       → batch hydrate chat (Phase 14 mode-switch persistence)
  *   - addBookingStatus / updateBookingStatus → Phase 14 booking-status query
  */
+/** Phase 14 — chat metadata preserved across mode switches */
+export interface InvestorChatMeta {
+  bulletsByMessageId:     Record<string, string[]>;
+  citationsByMessageId:   Record<string, Citation[]>;
+  lastUpdatedByMessageId: Record<string, string>;
+}
+
 export interface UIStoreState extends UIState {
   setActiveMode:        (mode: AppMode) => void;
   setIsPulseGenerating: (v: boolean) => void;
@@ -111,6 +119,24 @@ export interface UIStoreState extends UIState {
   /** Phase 14 — booking status lookup populated by HITL events. */
   bookingStatuses:      Record<string, "pending" | "approved" | "rejected">;
   setBookingStatus:     (code: string, status: "pending" | "approved" | "rejected") => void;
+  /** Phase 14 — investor chat bullet/citation maps */
+  investorChatMeta:     InvestorChatMeta;
+  setInvestorChatMeta:  (patch: Partial<InvestorChatMeta>) => void;
+  /** Phase 14 — voice pause/resume on mode switch */
+  voiceSessionPaused:       boolean;
+  voiceWasActiveBeforePause: boolean;
+  setVoiceSessionPaused:    (paused: boolean, wasActive?: boolean) => void;
+  setIsVoiceActive:         (active: boolean) => void;
+  /** Phase 14 — replace full conversation state (voice persistence) */
+  setConversationState:   (state: ConversationState) => void;
+  hydrateSharedState:     (payload: {
+    topTheme?: string | null;
+    marketContext?: string | null;
+    bookingCodes?: BookingSummary[];
+    bookingStatuses?: Record<string, "pending" | "approved" | "rejected">;
+    pulseData?: WeeklyPulse | null;
+    conversationState?: ConversationState | null;
+  }) => void;
 }
 
 /* ── Module-scoped transition bookkeeping ──
@@ -156,6 +182,13 @@ export const useUIStore = create<UIStoreState>()(
         bookingCodes:       [],
         bookingStatuses:    {},
         conversationState:  INITIAL_CONVERSATION,
+        investorChatMeta: {
+          bulletsByMessageId:     {},
+          citationsByMessageId:   {},
+          lastUpdatedByMessageId: {},
+        },
+        voiceSessionPaused:        false,
+        voiceWasActiveBeforePause: false,
 
         /* ════════════════════════════════════════════════════
            ACTIONS
@@ -219,8 +252,8 @@ export const useUIStore = create<UIStoreState>()(
           reason?: string,
         ) =>
           set(
-            (s) => ({
-              hitlItems: s.hitlItems.map((i) =>
+            (s) => {
+              const hitlItems = s.hitlItems.map((i) =>
                 i.id === id
                   ? {
                       ...i,
@@ -233,8 +266,15 @@ export const useUIStore = create<UIStoreState>()(
                         : {}),
                     }
                   : i,
-              ),
-            }),
+              );
+              const item = s.hitlItems.find((i) => i.id === id);
+              const bookingStatuses = { ...s.bookingStatuses };
+              if (item) {
+                bookingStatuses[item.bookingCode] =
+                  status === "authorized" ? "approved" : "rejected";
+              }
+              return { hitlItems, bookingStatuses };
+            },
             false,
             "updateHitlStatus",
           ),
@@ -296,6 +336,70 @@ export const useUIStore = create<UIStoreState>()(
             false,
             "setBookingStatus",
           ),
+
+        setInvestorChatMeta: (patch: Partial<InvestorChatMeta>) =>
+          set(
+            (s) => ({
+              investorChatMeta: {
+                bulletsByMessageId: patch.bulletsByMessageId
+                  ? { ...s.investorChatMeta.bulletsByMessageId, ...patch.bulletsByMessageId }
+                  : s.investorChatMeta.bulletsByMessageId,
+                citationsByMessageId: patch.citationsByMessageId
+                  ? { ...s.investorChatMeta.citationsByMessageId, ...patch.citationsByMessageId }
+                  : s.investorChatMeta.citationsByMessageId,
+                lastUpdatedByMessageId: patch.lastUpdatedByMessageId
+                  ? { ...s.investorChatMeta.lastUpdatedByMessageId, ...patch.lastUpdatedByMessageId }
+                  : s.investorChatMeta.lastUpdatedByMessageId,
+              },
+            }),
+            false,
+            "setInvestorChatMeta",
+          ),
+
+        setVoiceSessionPaused: (paused: boolean, wasActive?: boolean) =>
+          set(
+            {
+              voiceSessionPaused: paused,
+              ...(wasActive !== undefined
+                ? { voiceWasActiveBeforePause: wasActive }
+                : {}),
+            },
+            false,
+            "setVoiceSessionPaused",
+          ),
+
+        setIsVoiceActive: (active: boolean) =>
+          set({ isVoiceActive: active }, false, "setIsVoiceActive"),
+
+        setConversationState: (state: ConversationState) =>
+          set({ conversationState: state }, false, "setConversationState"),
+
+        hydrateSharedState: (payload) =>
+          set(
+            (s) => ({
+              topTheme: payload.topTheme !== undefined ? payload.topTheme : s.topTheme,
+              marketContext:
+                payload.marketContext !== undefined
+                  ? payload.marketContext
+                  : s.marketContext,
+              bookingCodes:
+                payload.bookingCodes !== undefined
+                  ? payload.bookingCodes
+                  : s.bookingCodes,
+              bookingStatuses:
+                payload.bookingStatuses !== undefined
+                  ? payload.bookingStatuses
+                  : s.bookingStatuses,
+              pulseData:
+                payload.pulseData !== undefined ? payload.pulseData : s.pulseData,
+              conversationState:
+                payload.conversationState != null
+                  ? payload.conversationState
+                  : s.conversationState,
+            }),
+            false,
+            "hydrateSharedState",
+          ),
       } satisfies UIStoreState;
     }),
     { name: "nl-suite-ui-store", enabled: process.env.NODE_ENV !== "production" },
@@ -350,6 +454,13 @@ export function resetStoreForTests(): void {
       bookingCodes:      [],
       bookingStatuses:   {},
       conversationState: createInitialConversationState("session-init-placeholder"),
+      investorChatMeta: {
+        bulletsByMessageId:     {},
+        citationsByMessageId:   {},
+        lastUpdatedByMessageId: {},
+      },
+      voiceSessionPaused:        false,
+      voiceWasActiveBeforePause: false,
     },
     false,
   );

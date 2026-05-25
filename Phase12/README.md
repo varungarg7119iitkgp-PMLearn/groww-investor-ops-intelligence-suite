@@ -39,13 +39,22 @@ Director Ops is fully functional.
 
 ## Verification (architecture §Phase 12)
 
-- [ ] Upload CSV (15+ rows) → pulse generates successfully
-- [ ] Pulse word count ≤ 250 (UI readout green)
-- [ ] Exactly 3 quotes, exactly 3 actions
-- [ ] ≤ 5 themes, top 3 marked `isTopThree`
-- [ ] PII removed from reviews + pulse output
-- [ ] Fee Explainer ≤ 6 bullets + 2 source URLs
-- [ ] Zustand `topTheme` updated on pulse generation
+- [x] Upload CSV (15+ rows) → pulse generates successfully
+- [x] Pulse word count ≤ 250 (UI readout green)
+- [x] Exactly 3 quotes, exactly 3 actions
+- [x] ≤ 5 themes, top 3 marked `isTopThree`
+- [x] PII removed from reviews + pulse output
+- [x] Fee Explainer ≤ 6 bullets + 2 source URLs
+- [x] Zustand `topTheme` updated on pulse generation
+
+## Manual Testing Checklist
+
+1. **Start dev server:** `npm run dev` → open `http://localhost:3000` → toggle **DIRECTOR OPS**.
+2. **Fee Explainer:** scroll to **FEE EXPLAINER** → switch scenarios (Expense Ratio, Exit Load, TCS, …) → confirm ≤ 6 bullets, 2 source links, “Last checked” date.
+3. **CSV upload (optional):** in Weekly Pulse empty state, upload `Phase12/fixtures/sample-reviews.csv` → confirm green ingest banner → pulse auto-generates.
+4. **Generate pulse:** click **GENERATE WEEKLY PULSE** (or **REGENERATE**) → wait for themes, 3 quotes, 3 actions, word count ≤ 250/250.
+5. **Cross-pillar check:** switch to **INVESTOR TERMINAL** → start voice/text concierge → greeting should reference the top pulse theme (when live pulse exists).
+6. **PII scrub:** upload a CSV row containing a fake PAN (`ABCDE1234F`) in the `text` column → ingest banner should report PII hits; pulse output must not echo PAN.
 
 ## AI Eval Gate — UX Structure
 
