@@ -35,7 +35,7 @@ const REQUEST_TIMEOUT_MS = 25_000;
 
 export async function POST(req: Request) {
   const started = Date.now();
-  const apiKey = process.env.ELEVENLABS_API_KEY;
+  const apiKey = (process.env.ELEVENLABS_API_KEY ?? "").trim();
   if (!apiKey) {
     return NextResponse.json(
       { error: "ELEVENLABS_API_KEY is not configured" },

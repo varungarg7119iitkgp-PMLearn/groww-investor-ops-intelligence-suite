@@ -40,10 +40,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  const voiceId =
-    body.voiceId || process.env.ELEVENLABS_VOICE_ID || FALLBACK_VOICE_ID;
-  const modelId = body.modelId || DEFAULT_MODEL;
+  /* Sanitize env vars: Vercel CLI / dashboard sometimes preserves trailing
+   * newlines or carriage returns in pasted values, which then leak into the
+   * URL path or Authorization header and produce a 400 from ElevenLabs. */
+  const apiKey = (process.env.ELEVENLABS_API_KEY ?? "").trim();
+  const envVoiceId = (process.env.ELEVENLABS_VOICE_ID ?? "").trim();
+  const voiceId = (body.voiceId?.trim() || envVoiceId || FALLBACK_VOICE_ID).replace(
+    /[^A-Za-z0-9]/g,
+    "",
+  );
+  const modelId = (body.modelId?.trim() || DEFAULT_MODEL);
 
   if (!apiKey) {
     return NextResponse.json(
