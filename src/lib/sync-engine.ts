@@ -6,6 +6,7 @@
 import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { redactPII } from "@/lib/compliance";
 import { GROWW_APP_ID } from "@/lib/constants";
+import { fetchAndroidReviews, fetchIOSReviews, type ScrapedReview } from "@/lib/scraper";
 
 export interface SyncResult {
   platform: "android" | "ios";
