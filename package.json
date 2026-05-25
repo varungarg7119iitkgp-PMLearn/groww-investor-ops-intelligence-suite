@@ -16,7 +16,9 @@
     "eval:final": "npx tsx scripts/eval-final.ts",
     "test": "vitest run",
     "verify:deliverables": "npx tsx scripts/verify-deliverables.ts",
-    "audit:routes": "npx tsx scripts/audit-routes-direct.ts"
+    "audit:routes": "npx tsx scripts/audit-routes-direct.ts",
+    "refresh:funds": "npx tsx --env-file=.env.local scripts/refresh-funds-from-groww.ts",
+    "refresh:funds:ci": "npx tsx scripts/refresh-funds-from-groww.ts"
   },
   "dependencies": {
     "@elevenlabs/elevenlabs-js": "^2.49.1",
