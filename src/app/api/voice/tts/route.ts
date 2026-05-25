@@ -27,6 +27,8 @@ import { redactPII, enforceBrevity, runOutputGuard } from "@/lib/compliance";
 
 const TTS_ENDPOINT_BASE = "https://api.elevenlabs.io/v1/text-to-speech";
 const DEFAULT_MODEL = "eleven_turbo_v2_5";
+/** ElevenLabs built-in "Rachel" voice — guaranteed to exist on every account. */
+const FALLBACK_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 const MAX_INPUT_CHARS = 600;
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -40,7 +42,7 @@ export async function POST(req: Request) {
 
   const apiKey = process.env.ELEVENLABS_API_KEY;
   const voiceId =
-    body.voiceId || process.env.ELEVENLABS_VOICE_ID || "IaWqJvI9YWSfioAadRXU";
+    body.voiceId || process.env.ELEVENLABS_VOICE_ID || FALLBACK_VOICE_ID;
   const modelId = body.modelId || DEFAULT_MODEL;
 
   if (!apiKey) {
@@ -85,42 +87,57 @@ export async function POST(req: Request) {
     );
   }
 
-  /* Upstream call */
-  const url = `${TTS_ENDPOINT_BASE}/${encodeURIComponent(voiceId)}?optimize_streaming_latency=2&output_format=mp3_44100_128`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  async function callElevenLabs(useVoice: string): Promise<Response> {
+    const url = `${TTS_ENDPOINT_BASE}/${encodeURIComponent(useVoice)}?optimize_streaming_latency=2&output_format=mp3_44100_128`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      return await fetch(url, {
+        method: "POST",
+        headers: {
+          "xi-api-key": apiKey!,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          text: brief,
+          model_id: modelId,
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.2,
+            use_speaker_boost: true,
+          },
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   let upstream: Response;
+  let voiceUsed = voiceId;
   try {
-    upstream = await fetch(url, {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text: brief,
-        model_id: modelId,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.2,
-          use_speaker_boost: true,
-        },
-      }),
-      signal: controller.signal,
-    });
+    upstream = await callElevenLabs(voiceId);
+
+    /* Common 400 cause: configured voice id is invalid for this API key.
+     * Retry once against the built-in Rachel voice so prod doesn't go silent. */
+    if (upstream.status === 400 && voiceId !== FALLBACK_VOICE_ID) {
+      const detail = await upstream.text().catch(() => "");
+      console.warn(
+        `[tts] voice ${voiceId} rejected (${upstream.status}); retrying with fallback. detail=${detail.slice(0, 200)}`,
+      );
+      upstream = await callElevenLabs(FALLBACK_VOICE_ID);
+      voiceUsed = FALLBACK_VOICE_ID;
+    }
   } catch (err) {
-    clearTimeout(timer);
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
       { error: `ElevenLabs request failed: ${message}` },
       { status: 502 },
     );
   }
-  clearTimeout(timer);
 
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => "");
@@ -128,6 +145,7 @@ export async function POST(req: Request) {
       {
         error: `ElevenLabs upstream returned ${upstream.status}`,
         detail: text.slice(0, 300),
+        voiceTried: voiceUsed,
       },
       { status: upstream.status >= 500 ? 502 : upstream.status },
     );
@@ -138,7 +156,7 @@ export async function POST(req: Request) {
     headers: {
       "Content-Type": "audio/mpeg",
       "Cache-Control": "no-store",
-      "X-Voice-Id": voiceId,
+      "X-Voice-Id": voiceUsed,
       "X-Model-Id": modelId,
     },
   });

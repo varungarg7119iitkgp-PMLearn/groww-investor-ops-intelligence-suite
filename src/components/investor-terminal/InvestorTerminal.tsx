@@ -326,7 +326,13 @@ export function InvestorTerminal() {
     const msg =
       `Good ${tod}! I'm Smart Sync, your AI research assistant for Groww's curated mutual funds. ` +
       `Tap me to ask anything by voice, or type your question below.`;
-    await voiceSpeakRef.current?.(msg);
+    /* Swallow autoplay-blocked / TTS-not-configured errors so the UI never
+     * shows a startup error banner. The orb click will retry. */
+    try {
+      await voiceSpeakRef.current?.(msg);
+    } catch {
+      /* ignore */
+    }
     greetingFiredRef.current = true;
   }, []);
 
