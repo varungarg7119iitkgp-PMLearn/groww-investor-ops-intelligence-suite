@@ -37,3 +37,7 @@ next-env.d.ts
 # pulled from Vercel CLI
 .vercel.production.env
 
+# scratch / temp files
+.commit-msg.tmp
+tts-resp.bin
+

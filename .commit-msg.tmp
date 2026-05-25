@@ -1,8 +1,0 @@
-fix(tts): retry with built-in voice on 400, swallow autoplay errors silently
-
-- ElevenLabs TTS endpoint now retries with built-in Rachel voice
-  (21m00Tcm4TlvDq8ikWAM) when the configured ELEVENLABS_VOICE_ID
-  returns 400 (invalid voice for the API key)
-- Auto-play greeting on page load now swallows TTS errors so the UI
-  never shows a startup error banner if autoplay is blocked or
-  ElevenLabs key is missing
