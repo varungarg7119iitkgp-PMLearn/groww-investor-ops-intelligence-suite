@@ -531,3 +531,154 @@ export async function getTickerData(): Promise<ApiResponse<TickerItem[]>> {
 
   return apiSuccess(items, { count: items.length });
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   REVIEW STATS — Director Ops dashboard (live Supabase data)
+   ════════════════════════════════════════════════════════════════════ */
+
+export interface ReviewCategoryStat {
+  name: string;
+  count: number;
+}
+
+export interface ReviewSentimentDay {
+  label: string;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+export interface ReviewStatsResult {
+  totalReviews: number;
+  androidCount: number;
+  iosCount: number;
+  categories: ReviewCategoryStat[];
+  sentimentTrend: ReviewSentimentDay[];
+  dataSource: "supabase";
+}
+
+const REVIEW_CATEGORY_KEYWORDS: Record<string, RegExp[]> = {
+  "KYC & Verification":      [/\b(kyc|verification|identity|aadhaar|pan)\b/i],
+  "Payments & SIP":          [/\b(sip|payment|debit|mandate|upi|autopay)\b/i],
+  "Statements & Reports":    [/\b(statement|report|cas|capital\s+gains|p&l)\b/i],
+  "Onboarding":              [/\b(onboard|signup|register|new\s+user)\b/i],
+  "Withdrawals":             [/\b(withdraw|redeem|redemption)\b/i],
+  "Mutual Fund Switch":      [/\b(switch|fund\s+change|portfolio)\b/i],
+  "Tax & Capital Gains":     [/\b(tax|ltcg|stcg|capital\s+gains)\b/i],
+  "Customer Support":        [/\b(support|help|customer\s+care|ticket)\b/i],
+};
+
+function timeRangeToSinceIso(range: string): string {
+  const now = new Date();
+  const d = new Date(now);
+  switch (range) {
+    case "TODAY":
+      break;
+    case "YESTERDAY":
+      d.setDate(d.getDate() - 1);
+      break;
+    case "LAST_15":
+      d.setDate(d.getDate() - 15);
+      break;
+    case "LAST_30":
+      d.setDate(d.getDate() - 30);
+      break;
+    case "LAST_7":
+    default:
+      d.setDate(d.getDate() - 7);
+      break;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+function classifyReviewCategory(text: string): string {
+  for (const [name, patterns] of Object.entries(REVIEW_CATEGORY_KEYWORDS)) {
+    if (patterns.some((re) => re.test(text))) return name;
+  }
+  return "Other";
+}
+
+/**
+ * Aggregated review stats for Director Ops — platform + time filters.
+ * Reads live rows from Supabase (Play Store / App Store ingest).
+ */
+export async function getReviewStats(opts: {
+  platform?: "ALL" | "ANDROID" | "IOS";
+  timeRange?: string;
+} = {}): Promise<ApiResponse<ReviewStatsResult>> {
+  const platform = opts.platform ?? "ALL";
+  const timeRange = opts.timeRange ?? "LAST_7";
+  const sinceDate = timeRangeToSinceIso(timeRange);
+
+  try {
+    const supabase = getSupabaseClient();
+    let query = supabase
+      .from("reviews")
+      .select("platform, sentiment, review_date, sanitized_text")
+      .eq("app_id", GROWW_APP_ID)
+      .gte("review_date", sinceDate)
+      .order("review_date", { ascending: true })
+      .limit(5000);
+
+    if (platform === "ANDROID") query = query.eq("platform", "android");
+    if (platform === "IOS") query = query.eq("platform", "ios");
+
+    const { data, error } = await query;
+    if (error) return apiError(error.message);
+    const rows = data ?? [];
+
+    /* If the time window is empty but reviews exist, widen to 30 days */
+    if (rows.length === 0 && timeRange !== "LAST_30") {
+      return getReviewStats({ platform, timeRange: "LAST_30" });
+    }
+
+    const categoryCounts = new Map<string, number>();
+    const dayMap = new Map<string, { positive: number; neutral: number; negative: number }>();
+    let androidCount = 0;
+    let iosCount = 0;
+
+    for (const row of rows) {
+      const r = row as {
+        platform: string;
+        sentiment: string | null;
+        review_date: string;
+        sanitized_text: string;
+      };
+      if (r.platform === "android") androidCount++;
+      if (r.platform === "ios") iosCount++;
+
+      const cat = classifyReviewCategory(r.sanitized_text ?? "");
+      categoryCounts.set(cat, (categoryCounts.get(cat) ?? 0) + 1);
+
+      const dayKey = r.review_date;
+      const bucket = dayMap.get(dayKey) ?? { positive: 0, neutral: 0, negative: 0 };
+      const sent = (r.sentiment ?? "neutral") as "positive" | "negative" | "neutral";
+      bucket[sent]++;
+      dayMap.set(dayKey, bucket);
+    }
+
+    const categories = [...categoryCounts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    const sentimentTrend: ReviewSentimentDay[] = [...dayMap.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-7)
+      .map(([date, counts]) => ({
+        label: new Date(date).toLocaleDateString("en-IN", { month: "short", day: "numeric" }),
+        ...counts,
+      }));
+
+    return apiSuccess({
+      totalReviews: rows.length,
+      androidCount,
+      iosCount,
+      categories,
+      sentimentTrend,
+      dataSource: "supabase",
+    });
+  } catch (err) {
+    return apiError(err instanceof Error ? err.message : "Unknown error in getReviewStats");
+  }
+}

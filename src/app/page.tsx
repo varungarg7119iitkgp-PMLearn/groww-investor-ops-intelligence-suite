@@ -19,13 +19,14 @@
 
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import {
   AuroraMesh,
   ModeTransition,
   CrossPillarSync,
+  AuthorizingSplash,
 } from "@/components/shared";
 import { TacticalHUDMap } from "@/components/director";
 import { InvestorTerminal } from "@/components/investor-terminal";
@@ -40,11 +41,15 @@ import { useUIStore, readPersistedMode } from "@/lib/store";
 function ModeURLSync() {
   const params        = useSearchParams();
   const setActiveMode = useUIStore((s) => s.setActiveMode);
+  const activeMode    = useUIStore((s) => s.activeMode);
+  const [directorSplash, setDirectorSplash] = useState(false);
 
   useEffect(() => {
     const param = params?.get("mode");
     if (param === "director" || param === "director-ops") {
-      setActiveMode("director-ops");
+      if (activeMode !== "director-ops") {
+        setDirectorSplash(true);
+      }
       return;
     }
     if (param === "investor" || param === "investor-terminal") {
@@ -54,9 +59,20 @@ function ModeURLSync() {
     const persisted = readPersistedMode();
     if (persisted) setActiveMode(persisted);
     /* No-op otherwise — store default ("investor-terminal") wins */
-  }, [params, setActiveMode]);
+  }, [params, setActiveMode, activeMode]);
 
-  return null;
+  const handleSplashComplete = useCallback(() => {
+    setActiveMode("director-ops");
+    setDirectorSplash(false);
+  }, [setActiveMode]);
+
+  return (
+    <AuthorizingSplash
+      open={directorSplash}
+      durationMs={1800}
+      onComplete={handleSplashComplete}
+    />
+  );
 }
 
 export default function RootEntry() {

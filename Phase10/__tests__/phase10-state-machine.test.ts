@@ -29,7 +29,8 @@ import { VALID_STEPS, VALID_INTENTS, VALID_TOPICS } from "@/types";
    ════════════════════════════════════════════════════════════════════ */
 
 describe("isValidTransition() — explicit allow-list", () => {
-  it("idle → greeting", () => expect(isValidTransition("idle", "greeting")).toBe(true));
+  it("idle → booking_intent allowed when user has booking intent", () =>
+    expect(isValidTransition("idle", "booking_intent")).toBe(true));
   it("greeting → intent_classification", () =>
     expect(isValidTransition("greeting", "intent_classification")).toBe(true));
   it("intent_classification → faq_resolution", () =>
@@ -45,8 +46,6 @@ describe("isValidTransition() — explicit allow-list", () => {
   it("closing → idle", () => expect(isValidTransition("closing", "idle")).toBe(true));
 
   /* Rejected transitions */
-  it("idle → booking_intent (skip greeting) rejected", () =>
-    expect(isValidTransition("idle", "booking_intent")).toBe(false));
   it("greeting → closing (skip resolution) rejected", () =>
     expect(isValidTransition("greeting", "closing")).toBe(false));
   it("booking_confirmation → faq_resolution rejected", () =>
@@ -58,6 +57,14 @@ describe("isValidTransition() — explicit allow-list", () => {
    ════════════════════════════════════════════════════════════════════ */
 
 describe("getNextState() — driven by intent + opts", () => {
+  it("idle + booking intent → booking_intent (skip greeting)", () => {
+    expect(getNextState("idle", "booking")).toBe("booking_intent");
+  });
+
+  it("idle + faq intent → faq_resolution (skip greeting)", () => {
+    expect(getNextState("idle", "faq")).toBe("faq_resolution");
+  });
+
   it("idle without intent → greeting", () => {
     expect(getNextState("idle")).toBe("greeting");
   });

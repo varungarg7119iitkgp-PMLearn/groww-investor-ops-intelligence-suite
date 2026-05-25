@@ -14,8 +14,9 @@
  */
 
 import { NextResponse } from "next/server";
-import { getSupabaseClient } from "@/lib/supabase";
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { createCalendarEvent, buildCalendarPayload } from "@/tools/calendar";
+import { sendAdvisorConfirmationEmail } from "@/lib/smtp";
 import type { ApprovalItem, TopicType, BookingCode, BookingSummary } from "@/types";
 
 export const runtime = "nodejs";
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
 
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseAdminClient();
 
   // Fetch the approval item
   const { data: item, error: fetchErr } = await supabase
@@ -111,6 +112,13 @@ export async function POST(req: Request) {
     );
   }
 
+  /* Send confirmation email via SMTP (non-blocking for the HTTP response) */
+  const emailBody = (body.emailDraft ?? item.email_draft) as string;
+  const mailResult = await sendAdvisorConfirmationEmail(item.advisor_email, emailBody);
+  if (!mailResult.ok) {
+    console.warn("[authorize] SMTP send failed:", mailResult.error);
+  }
+
   const updatedItem: Partial<ApprovalItem> = {
     id: body.id,
     status: "authorized",
@@ -124,5 +132,7 @@ export async function POST(req: Request) {
       htmlLink: calResult.htmlLink,
       status: calResult.status,
     },
+    emailSent: mailResult.ok,
+    emailError: mailResult.error,
   });
 }

@@ -62,8 +62,8 @@ export { SILENCE_TIMEOUTS };
  * follow-up FAQ question keeps `faq_resolution`).
  */
 const TRANSITIONS: Record<ConversationStep, ConversationStep[]> = {
-  idle:                  ["greeting"],
-  greeting:              ["intent_classification"],
+  idle:                  ["greeting", "booking_intent", "faq_resolution", "intent_classification"],
+  greeting:              ["intent_classification", "booking_intent", "faq_resolution"],
   intent_classification: [
     "faq_resolution",
     "booking_intent",
@@ -117,12 +117,24 @@ export function getNextState(
     return "closing";
   }
 
-  switch (current) {
-    case "idle":
-      return "greeting";
+  /* Fast-forward early steps when the user already stated a clear intent
+   * (Meet button, mic, or hydrated session stuck at greeting). */
+  const active = resolveActiveStep(current, intent);
 
-    case "greeting":
+  switch (active) {
+    case "idle": {
+      /* When the user already typed/spoke (Meet button, mic, chat), skip
+       * the canned greeting and jump straight to the resolved step. */
+      if (intent === "booking") return "booking_intent";
+      if (intent === "faq" || intent === "complaint") return "faq_resolution";
+      return "greeting";
+    }
+
+    case "greeting": {
+      if (intent === "booking") return "booking_intent";
+      if (intent === "faq" || intent === "complaint") return "faq_resolution";
       return "intent_classification";
+    }
 
     case "intent_classification": {
       if (!intent || intent === "unknown") {
@@ -156,6 +168,36 @@ export function getNextState(
        * all branches above are exhausted. */
       return "idle";
   }
+}
+
+/**
+ * When a session is stuck at greeting/intent_classification (e.g. hydrated
+ * from shared state) but the user sends a clear booking or FAQ message,
+ * jump directly to the correct step.
+ */
+export function resolveActiveStep(
+  current: ConversationStep,
+  intent?: IntentType,
+): ConversationStep {
+  if (intent === "booking") {
+    if (
+      current === "idle" ||
+      current === "greeting" ||
+      current === "intent_classification"
+    ) {
+      return "booking_intent";
+    }
+  }
+  if (intent === "faq" || intent === "complaint") {
+    if (
+      current === "idle" ||
+      current === "greeting" ||
+      current === "intent_classification"
+    ) {
+      return "faq_resolution";
+    }
+  }
+  return current;
 }
 
 /* ════════════════════════════════════════════════════════════════════
@@ -207,7 +249,8 @@ export function getPromptForState(
 
     case "faq_resolution":
       return [
-        `Answer the user's question using ONLY facts retrieved via the get_preparation_docs tool or the Smart-Sync KB.`,
+        `Answer the user's question using ONLY facts from the query_fund_knowledge tool (NAV, expense ratio, returns, fees) or get_preparation_docs for advisor-prep topics.`,
+        `ALWAYS call query_fund_knowledge first for fund/NAV/fee/return questions — the KB has live NAV for all 20 funds.`,
         `Cite the source (fund name + url) inline. NEVER recommend, suggest, or predict — only state facts from sources.`,
         `If the question is outside the 20-fund scope, say so and offer to book an advisor call.`,
         `Keep response ≤ 2 sentences for TTS; if more detail is needed, ask if user wants the full explanation.`,
@@ -266,6 +309,8 @@ const INTENT_KEYWORDS: Record<Exclude<IntentType, "unknown">, RegExp[]> = {
     /\bspeak\s+to\s+(an?\s+)?advisor/i,
     /\btalk\s+to\s+someone/i,
     /\breschedule|cancel\s+(my\s+)?(appointment|call)/i,
+    /\bbook\s+an?\s+advisor/i,
+    /\badvisor\s+appointment/i,
   ],
   complaint: [
     /\b(complaint|issue|problem|grievance|stuck|broken|failed|error|cant)\b/i,

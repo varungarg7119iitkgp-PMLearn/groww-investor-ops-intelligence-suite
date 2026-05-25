@@ -36,6 +36,7 @@ import type {
   OpsSection,
   SentimentPoint,
 } from "@/components/director-ops";
+import type { ReviewCategoryStat } from "@/lib/data";
 import { useUIStore } from "@/lib/store";
 
 /* ════════════════════════════════════════════════════════════════
@@ -80,75 +81,6 @@ const MOCK_PULSE: WeeklyPulse = {
   ], // exactly 3 — Req 6
   createdAt: "2026-05-24T08:00:00.000Z",
 };
-
-const MOCK_APPROVALS: ApprovalItem[] = [
-  {
-    id:                    "appr-1",
-    bookingCode:           "NL-X7K2",
-    investorNameRedacted:  "[REDACTED]",
-    topic:                 "kyc",
-    proposedSlot:          "2026-05-27T10:30:00.000Z",
-    advisorEmail:          "priya.advisor@groww.in",
-    emailDraft:
-      "Dear Investor,\n\n" +
-      "Thank you for reaching out regarding KYC re-verification. I have scheduled a 30-minute consultation " +
-      "for 27 May 2026 at 10:30 AM IST.\n\n" +
-      "During our call we will:\n" +
-      "  • Review the exact reason your KYC was flagged\n" +
-      "  • Walk through the corrective document set\n" +
-      "  • Resolve the re-verification in-session if possible\n\n" +
-      "Booking reference: NL-X7K2\n\n" +
-      "Best regards,\nPriya | Advisor Desk",
-    marketContextSnippet:
-      "Top theme this week: KYC Re-verification Friction (142 mentions). " +
-      "Likely root cause: SEBI May-2026 circular on enhanced due diligence.",
-    status:                "pending_review",
-    createdAt:             "2026-05-24T09:15:00.000Z",
-  },
-  {
-    id:                    "appr-2",
-    bookingCode:           "NL-M4Q9",
-    investorNameRedacted:  "[REDACTED]",
-    topic:                 "sip",
-    proposedSlot:          "2026-05-26T15:00:00.000Z",
-    advisorEmail:          "rahul.advisor@groww.in",
-    emailDraft:
-      "Hi,\n\n" +
-      "Thanks for raising the SIP auto-debit issue. I've blocked 15:00 IST on 26 May 2026 for a call.\n\n" +
-      "Please keep handy:\n" +
-      "  • Your latest mandate ID\n" +
-      "  • Bank statement showing the failed debit\n\n" +
-      "Booking reference: NL-M4Q9\n\n" +
-      "Regards,\nRahul",
-    marketContextSnippet:
-      "SIP Auto-debit Failure Rate is the 2nd-largest weekly theme (118 mentions), " +
-      "concentrated around HDFC/SBI mandates following a recent NPCI flow change.",
-    status:                "pending_review",
-    createdAt:             "2026-05-24T10:42:00.000Z",
-  },
-  {
-    id:                    "appr-3",
-    bookingCode:           "NL-T8B1",
-    investorNameRedacted:  "[REDACTED]",
-    topic:                 "statements",
-    proposedSlot:          "2026-05-28T11:00:00.000Z",
-    advisorEmail:          "anjali.advisor@groww.in",
-    emailDraft:
-      "Hello,\n\n" +
-      "Confirming our consultation on 28 May 2026 at 11:00 AM IST to walk through your FY26 capital-gains statement.\n\n" +
-      "We will cover:\n" +
-      "  • New statement format introduced post Finance Bill 2026\n" +
-      "  • Dividend vs growth plan separation\n" +
-      "  • LTCG/STCG calculation methodology\n\n" +
-      "Booking reference: NL-T8B1\n\n" +
-      "Warm regards,\nAnjali",
-    marketContextSnippet:
-      "Capital-Gains Statement Confusion is the 3rd-largest theme (87 mentions). " +
-      "Driver: Finance Bill 2026 statement format change.",
-    status:                "pending_review",
-    createdAt:             "2026-05-24T11:08:00.000Z",
-  },
-];
 
 const MOCK_CATEGORIES = [
   { name: "KYC & Verification",      count: 142 },
@@ -198,27 +130,50 @@ export function DirectorOpsConsole() {
   /* Locally-derived UI state. */
   const [checkedActions,  setCheckedActions]= useState<boolean[]>([false, false, false]);
   const [platform,        setPlatform]      = useState<OpsPlatformFilter>("ALL");
-  const [timeRange,       setTimeRange]     = useState<OpsTimeFilter>("LAST_7");
+  const [timeRange,       setTimeRange]     = useState<OpsTimeFilter>("LAST_30");
   const [activeSection,   setActiveSection] = useState<OpsSection>("PULSE");
   const [isSyncing,       setIsSyncing]     = useState(false);
   const [lastSync,        setLastSync]      = useState<string>(new Date().toISOString());
   const [genError,        setGenError]      = useState<string | null>(null);
   const [uploadStats,     setUploadStats]   = useState<{ inserted: number; piiHits: number; totalRows: number } | null>(null);
+  const [categories,      setCategories]    = useState<ReviewCategoryStat[]>([]);
+  const [sentimentReviews,setSentimentReviews] = useState<SentimentPoint[]>([]);
+  const [reviewTotal,     setReviewTotal]    = useState(0);
+  const [dataLoaded,      setDataLoaded]     = useState(false);
+  const [usingLiveData,   setUsingLiveData]  = useState(false);
 
-  /* Pulse hydration: fall back to MOCK if Supabase returns nothing on first
-   * mount (keeps the console useful during seed/empty deploys). */
+  /* Pulse hydration: prefer live Supabase data; mock only when API fails. */
   const pulse        = storePulse ?? null;
   const isGenerating = isStoreGenerating;
-  const items        = storeItems.length > 0 ? storeItems : MOCK_APPROVALS;
+  const items        = storeItems;
 
-  /* First-mount: hydrate pulse + HITL queue from live API */
+  /* Fetch live review stats when filters change */
+  const fetchReviewStats = useCallback(async (plat: OpsPlatformFilter, range: OpsTimeFilter) => {
+    try {
+      const qs = new URLSearchParams({ platform: plat, timeRange: range });
+      const r = await fetch(`/api/reviews/stats?${qs}`, { cache: "no-store" });
+      if (!r.ok) return;
+      const json = await r.json();
+      const stats = json?.stats;
+      if (!stats) return;
+      setCategories(stats.categories ?? []);
+      setSentimentReviews(stats.sentimentTrend ?? []);
+      setReviewTotal(stats.totalReviews ?? 0);
+      setUsingLiveData(true);
+    } catch {
+      /* keep previous stats */
+    }
+  }, []);
+
+  /* First-mount: hydrate pulse + HITL + review stats; auto-sync stores once */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [pulseRes, approvalsRes] = await Promise.all([
+        const [pulseRes, approvalsRes, statusRes] = await Promise.all([
           fetch("/api/pulse/latest", { cache: "no-store" }),
           fetch("/api/approvals", { cache: "no-store" }),
+          fetch("/api/reviews/sync-status", { cache: "no-store" }),
         ]);
         if (cancelled) return;
 
@@ -230,32 +185,53 @@ export function DirectorOpsConsole() {
             const top = live.themes?.[0];
             if (top?.name) setTopTheme(top.name);
             setMarketContext(live.summaryText.slice(0, 240));
-          } else {
+            setUsingLiveData(true);
+          } else if (!storePulse) {
             setPulseData(MOCK_PULSE);
             setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
             setMarketContext(MOCK_PULSE.summaryText.slice(0, 240));
           }
-        } else {
+        } else if (!storePulse) {
           setPulseData(MOCK_PULSE);
           setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
         }
 
         if (approvalsRes.ok) {
           const aJson = await approvalsRes.json();
-          if (aJson?.items?.length > 0) {
-            setHitlItems(aJson.items as ApprovalItem[]);
+          setHitlItems((aJson?.items ?? []) as ApprovalItem[]);
+        }
+
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          const ts = status.lastAndroidSync ?? status.lastIOSSync;
+          if (ts) setLastSync(ts);
+          /* If DB is empty or stale, pull fresh store reviews on first load */
+          if ((status.totalReviews ?? 0) < 50) {
+            await fetch("/api/reviews/sync", {
+              method:  "POST",
+              headers: { "content-type": "application/json" },
+              body:    JSON.stringify({ syncAll: true, count: 200 }),
+            });
+            await fetchReviewStats(platform, timeRange);
           }
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && !storePulse) {
           setPulseData(MOCK_PULSE);
           setTopTheme(MOCK_PULSE.themes[0]?.name ?? "");
         }
+      } finally {
+        if (!cancelled) setDataLoaded(true);
       }
     })();
+    void fetchReviewStats(platform, timeRange);
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    void fetchReviewStats(platform, timeRange);
+  }, [platform, timeRange, fetchReviewStats]);
 
   const handleGenerate = useCallback(async () => {
     setIsPulseGenerating(true);
@@ -307,24 +283,73 @@ export function DirectorOpsConsole() {
     }
   }, [handleGenerate]);
 
-  const handleSync = useCallback(() => {
+  const handleSync = useCallback(async () => {
     setIsSyncing(true);
-    window.setTimeout(() => {
+    setGenError(null);
+    try {
+      /* 1. Fetch fresh reviews from Play Store + App Store (PM-Pulsator pipeline) */
+      const syncRes = await fetch("/api/reviews/sync", {
+        method:  "POST",
+        headers: { "content-type": "application/json" },
+        body:    JSON.stringify({ syncAll: true, count: 200 }),
+      });
+      const syncJson = await syncRes.json().catch(() => ({}));
+      if (!syncRes.ok) {
+        setGenError(syncJson?.error ?? `Store sync failed (${syncRes.status})`);
+      } else {
+        const android = syncJson?.results?.android;
+        const ios = syncJson?.results?.ios;
+        const inserted =
+          (android?.reviewsInserted ?? 0) + (ios?.reviewsInserted ?? 0);
+        if (inserted > 0) {
+          setUploadStats(null);
+        }
+      }
+
+      /* 2. Refresh pulse, approvals, and dashboard stats from Supabase */
+      await Promise.all([
+        fetch("/api/pulse/latest", { cache: "no-store" }).then(async (r) => {
+          if (r.ok) {
+            const json = await r.json();
+            if (json?.pulse) {
+              setPulseData(json.pulse as WeeklyPulse);
+              setUsingLiveData(true);
+            }
+          }
+        }),
+        fetch("/api/approvals", { cache: "no-store" }).then(async (r) => {
+          if (r.ok) {
+            const json = await r.json();
+            setHitlItems((json?.items ?? []) as ApprovalItem[]);
+          }
+        }),
+        fetchReviewStats(platform, timeRange),
+      ]);
+
+      const statusRes = await fetch("/api/reviews/sync-status", { cache: "no-store" });
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        const ts = status.lastAndroidSync ?? status.lastIOSSync;
+        setLastSync(ts ?? new Date().toISOString());
+      } else {
+        setLastSync(new Date().toISOString());
+      }
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : "Sync failed");
+    } finally {
       setIsSyncing(false);
-      setLastSync(new Date().toISOString());
-    }, 1500);
-  }, []);
+    }
+  }, [fetchReviewStats, platform, timeRange, setPulseData, setHitlItems]);
 
   const handleResetFilters = useCallback(() => {
     setPlatform("ALL");
-    setTimeRange("LAST_7");
+    setTimeRange("LAST_30");
   }, []);
 
   /* Mutators — write to Zustand so Phase 14 cross-pillar can read */
   const updateItems = useCallback(
     (mutator: (prev: ApprovalItem[]) => ApprovalItem[]) => {
-      const base = storeItems.length > 0 ? storeItems : MOCK_APPROVALS;
-      setHitlItems(mutator(base));
+      setHitlItems(mutator(storeItems));
     },
     [storeItems, setHitlItems],
   );
@@ -405,6 +430,11 @@ export function DirectorOpsConsole() {
     [items],
   );
 
+  const displayCategories = categories.length > 0 ? categories : MOCK_CATEGORIES;
+  const displaySentimentReviews = sentimentReviews.length > 0 ? sentimentReviews : MOCK_SENTIMENT_REVIEWS;
+  const displayPulse = pulse ?? (dataLoaded ? null : MOCK_PULSE);
+  const categoryTotal = displayCategories.reduce((s, c) => s + c.count, 0) || reviewTotal || 411;
+
   return (
     <div
       data-testid="director-ops-root"
@@ -450,7 +480,7 @@ export function DirectorOpsConsole() {
 
           <SectionAnchor id="section-pulse" label="WEEKLY PULSE ASSESSMENT">
             <PulseBriefing
-              pulse={pulse}
+              pulse={displayPulse}
               isGenerating={isGenerating}
               onGenerate={handleGenerate}
               onUploadCSV={handleUploadCSV}
@@ -496,7 +526,20 @@ export function DirectorOpsConsole() {
           </SectionAnchor>
 
           <SectionAnchor id="section-categories" label="CATEGORY MIX">
-            <CategoryMixBar categories={MOCK_CATEGORIES} total={411} maxRows={8} />
+            <CategoryMixBar categories={displayCategories} total={categoryTotal} maxRows={8} />
+            {usingLiveData && (
+              <p
+                style={{
+                  marginTop:    "8px",
+                  fontFamily:   "var(--font-hud)",
+                  fontSize:     "10px",
+                  color:        "var(--color-success)",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                LIVE · {reviewTotal.toLocaleString()} reviews from Play Store + App Store (Supabase)
+              </p>
+            )}
           </SectionAnchor>
 
           <SectionAnchor id="section-sentiment" label="SENTIMENT ANALYSIS — REVIEWS + CHAT">
@@ -508,7 +551,7 @@ export function DirectorOpsConsole() {
               }}
             >
               <SentimentTrend
-                points={MOCK_SENTIMENT_REVIEWS}
+                points={displaySentimentReviews}
                 source="reviews"
                 height={110}
                 testId="sentiment-trend-reviews"

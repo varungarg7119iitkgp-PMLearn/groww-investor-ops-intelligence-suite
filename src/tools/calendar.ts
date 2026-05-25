@@ -32,6 +32,7 @@ import {
   type CalendarEventResult,
   type BookingCode,
 } from "@/types";
+import { generateMockSlots } from "@/lib/state-machine";
 
 const SCOPES = ["https://www.googleapis.com/auth/calendar.events"];
 
@@ -129,6 +130,74 @@ export async function createCalendarEvent(
       bookingCode: payload.bookingCode,
     };
   }, payload);
+}
+
+/**
+ * Query Google Calendar free/busy and return up to 2 open advisor slots.
+ * Falls back to deterministic mock slots when Calendar API is unavailable.
+ */
+export async function getAvailableSlots(count = 2): Promise<string[]> {
+  const n = Math.max(1, Math.min(2, count));
+  const client = getCalendarClient();
+  const calendarId = process.env.TARGET_CALENDAR_ID || "primary";
+
+  if (!client) {
+    return generateMockSlots(n);
+  }
+
+  try {
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const now = Date.now();
+    const timeMin = new Date(now + istOffsetMs).toISOString();
+    const timeMax = new Date(now + 7 * 24 * 60 * 60 * 1000 + istOffsetMs).toISOString();
+
+    const busyRes = await withTimeout(
+      client.freebusy.query({
+        requestBody: {
+          timeMin,
+          timeMax,
+          timeZone: "Asia/Kolkata",
+          items: [{ id: calendarId }],
+        },
+      }),
+      10_000,
+    );
+
+    const busyBlocks =
+      busyRes.data.calendars?.[calendarId]?.busy?.map((b) => ({
+        start: Date.parse(b.start ?? ""),
+        end: Date.parse(b.end ?? ""),
+      })) ?? [];
+
+    const candidates = generateMockSlots(6);
+    const open: string[] = [];
+
+    for (const slotIso of candidates) {
+      const startMs = Date.parse(slotIso);
+      const endMs = startMs + 30 * 60 * 1000;
+      if (!Number.isFinite(startMs) || startMs <= now) continue;
+
+      const overlaps = busyBlocks.some(
+        (b) => Number.isFinite(b.start) && Number.isFinite(b.end) && startMs < b.end && endMs > b.start,
+      );
+      if (!overlaps) {
+        open.push(slotIso);
+        if (open.length >= n) break;
+      }
+    }
+
+    if (open.length >= n) return open.slice(0, n);
+    /* Pad with mock slots if calendar is fully booked */
+    const mock = generateMockSlots(n);
+    for (const m of mock) {
+      if (!open.includes(m)) open.push(m);
+      if (open.length >= n) break;
+    }
+    return open.slice(0, n);
+  } catch (err) {
+    console.error("[calendar] freebusy query failed:", err);
+    return generateMockSlots(n);
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════════

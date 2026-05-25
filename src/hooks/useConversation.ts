@@ -107,7 +107,9 @@ export function useConversation(): UseConversationResult {
   }, [topTheme, setConversationState, setBookingStatus, addBookingSummary]);
 
   const resetConversation = useCallback(() => {
-    setConversationState(createInitialConversationState(generateSessionId()));
+    const fresh = createInitialConversationState(generateSessionId());
+    stateRef.current = fresh;
+    setConversationState(fresh);
     setLastError(null);
   }, [setConversationState]);
 

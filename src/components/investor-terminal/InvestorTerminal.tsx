@@ -31,7 +31,7 @@ import {
   KnowledgeHubHeader,
   NewsRail,
 } from "@/components/investor-terminal";
-import { ScanningLine } from "@/components/shared";
+import { OpsAccessButton, ScanningLine } from "@/components/shared";
 import { createChatMessage } from "@/types";
 import type { ChatMessage, AgentVisualState, Citation } from "@/types";
 import { useVoiceInteraction } from "@/hooks/useVoiceInteraction";
@@ -319,34 +319,40 @@ export function InvestorTerminal() {
     voiceSpeakRef.current = voice.speak;
   });
 
-  /* ── Welcome greeting — speaks once on first mount via TTS ──
-   * Fires 2 s after mount to let the page settle and avoid clashing
-   * with browser autoplay policies (works after user first visits).
-   * Gracefully no-ops if ElevenLabs key is absent or autoplay blocked.
-   */
+  const speakWelcomeGreeting = useCallback(async () => {
+    if (greetingFiredRef.current) return;
+    const h = new Date().getHours();
+    const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+    const msg =
+      `Good ${tod}! I'm Smart Sync, your AI research assistant for Groww's curated mutual funds. ` +
+      `Tap me to ask anything by voice, or type your question below.`;
+    await voiceSpeakRef.current?.(msg);
+    greetingFiredRef.current = true;
+  }, []);
+
+  /* Welcome greeting — auto-play ~2 s after mount (user expects on load).
+   * Orb/mic click retries if autoplay was blocked before first attempt. */
   useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (greetingFiredRef.current) return;
-      greetingFiredRef.current = true;
-      const h = new Date().getHours();
-      const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
-      const msg =
-        `Good ${tod}! I'm Smart Sync, your AI research assistant for Groww's curated mutual funds. ` +
-        `Tap me to ask anything by voice, or type your question below.`;
-      await voiceSpeakRef.current?.(msg);
+    const timer = setTimeout(() => {
+      void speakWelcomeGreeting();
     }, 2000);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // intentionally empty — one-time on mount
+  }, [speakWelcomeGreeting]);
 
+  /* Cleanup voice resources only on unmount — NOT on every render.
+   * `useVoiceInteraction` returns a new object each render; depending on
+   * `[voice]` caused reset() to fire continuously and killed mic listening. */
+  const voiceResetRef = useRef(voice.reset);
+  voiceResetRef.current = voice.reset;
   useEffect(() => {
     return () => {
-      voice.reset();
+      voiceResetRef.current();
     };
-  }, [voice]);
+  }, []);
 
   const handleMicToggle = useCallback(
     async (active: boolean) => {
+      void speakWelcomeGreeting();
       setIsMicActive(active);
       setIsVoiceActive(active);
       if (voiceSessionPaused) setVoiceSessionPaused(false);
@@ -357,10 +363,11 @@ export function InvestorTerminal() {
         setIsVoiceActive(false);
       }
     },
-    [voice, voiceSessionPaused, setVoiceSessionPaused, setIsVoiceActive],
+    [voice, voiceSessionPaused, setVoiceSessionPaused, setIsVoiceActive, speakWelcomeGreeting],
   );
 
   const handleOrbClick = useCallback(async () => {
+    void speakWelcomeGreeting();
     if (voiceSessionPaused) setVoiceSessionPaused(false);
     if (voice.isListening) {
       setIsMicActive(false);
@@ -378,7 +385,7 @@ export function InvestorTerminal() {
     setIsMicActive(true);
     setIsVoiceActive(true);
     await voice.startListening();
-  }, [voice, voiceSessionPaused, setVoiceSessionPaused, setIsVoiceActive, cycleOrb]);
+  }, [voice, voiceSessionPaused, setVoiceSessionPaused, setIsVoiceActive, cycleOrb, speakWelcomeGreeting]);
 
   /* Derive orb state from voice hook when voice mode is in use,
    * otherwise fall through to the local text-mode state. */
@@ -389,6 +396,8 @@ export function InvestorTerminal() {
 
   return (
     <>
+      <OpsAccessButton />
+
       {/* ── Local scanning-line (chat response indicator) ── */}
       <ScanningLine
         isVisible={scanVisible}
@@ -583,8 +592,9 @@ export function InvestorTerminal() {
               onSubmit={handleSubmit}
               onMicToggle={handleMicToggle}
               onBookingClick={async () => {
-                /* Route booking through /api/voice/converse (has calendar + booking tools)
-                 * rather than /api/chat (RAG-only, flags booking as out-of-scope). */
+                /* Fresh booking session — clears hydrated shared state that may
+                 * leave the agent stuck at greeting/intent_classification. */
+                conversation.resetConversation();
                 const intent = "I'd like to book an advisor appointment";
                 const userMsg = createChatMessage("user", intent);
                 addChatMessage(userMsg);

@@ -247,11 +247,14 @@ export function buildVoiceSystemPrompt(args: VoiceSystemPromptArgs): string {
     "- Never recommend a fund, predict a return, or make a buy/sell call.",
     "- Never echo PII (PAN, Aadhaar, phone, email, account number). If user shares, gently redirect.",
     "- Cite the source URL or fund-name inline when answering FAQ.",
-    "- Every greeting includes: 'This is informational and not investment advice.'",
+    args.step === "greeting"
+      ? "- Include once: 'This is informational and not investment advice.'"
+      : "- Do NOT repeat the investment-advice disclaimer except during the initial greeting step.",
     "",
     "## TOOLS (Gemini Function Calling)",
-    "You have three tools -- use them when the conversation needs them:",
-    " - get_preparation_docs(topic, query?)   -- retrieve canonical prep docs for one of 5 topics.",
+    "You have four tools — use them when the conversation needs them:",
+    " - query_fund_knowledge(query)              -- Smart-Sync KB: NAV, expense ratio, returns, fees for 20 funds. USE FOR ALL FUND/Nav QUESTIONS.",
+    " - get_preparation_docs(topic, query?)   -- retrieve canonical prep docs for one of 5 advisor topics.",
     " - generate_booking_code_and_notes(...)  -- create the booking artifact when topic+context+slot are captured.",
     " - create_calendar_event(payload)        -- only AFTER explicit user confirmation.",
     "",

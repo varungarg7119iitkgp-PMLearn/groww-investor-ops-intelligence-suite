@@ -126,6 +126,24 @@ describe("/api/voice/converse — normal flow", () => {
     expect(systemPrompt.toLowerCase()).toContain("fee transparency");
   });
 
+  it("Booking intent from idle (Meet button) transitions to booking_intent step", async () => {
+    chatMock.mockResolvedValue({
+      text: "Sure. Which topic — KYC, SIP, statements, withdrawals, or account changes?",
+      toolCalls: [],
+      model: "gemini-2.5-flash-lite",
+      latencyMs: 200,
+    });
+
+    const { json } = await callConverse({
+      userInput: "I'd like to book an advisor appointment",
+    });
+
+    expect(json.meta.step).toBe("booking_intent");
+    expect(json.meta.intent).toBe("booking");
+    const systemPrompt = chatMock.mock.calls[0][1].systemInstruction as string;
+    expect(systemPrompt.toLowerCase()).toContain("capture booking topic");
+  });
+
   it("Booking intent transitions to booking_intent step", async () => {
     chatMock.mockResolvedValue({
       text: "Sure. Which topic — KYC, SIP, statements, withdrawals, or account changes?",

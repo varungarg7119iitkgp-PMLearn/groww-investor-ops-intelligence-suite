@@ -397,6 +397,12 @@ export function useVoiceInteraction(
     setOrbState("IDLE");
     setIsListening(false);
     setLastError(null);
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch { /* noop */ }
+      recognitionRef.current = null;
+    }
+    isWsaModeRef.current = false;
+    wsaTranscriptRef.current = "";
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       try { recorderRef.current.stop(); } catch { /* noop */ }
     }

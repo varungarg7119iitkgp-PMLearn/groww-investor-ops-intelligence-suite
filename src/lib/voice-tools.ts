@@ -22,6 +22,9 @@
 import type { TopicType, CalendarEventPayload, BookingCode } from "@/types";
 import { VALID_TOPICS, BOOKING_CODE_REGEX } from "@/types";
 import { getPreparationDocs } from "@/tools/preparation-retriever";
+import { identifyFunds } from "@/lib/fund-identifier";
+import { retrieveTopK } from "@/tools/rag-retriever";
+import { getFunds } from "@/lib/data";
 import {
   generateBookingCodeAndNotes,
   type GenerateBookingArgs,
@@ -33,6 +36,21 @@ import { createCalendarEvent, buildCalendarPayload } from "@/tools/calendar";
    ════════════════════════════════════════════════════════════════════ */
 
 export const VOICE_FUNCTION_DECLARATIONS = [
+  {
+    name: "query_fund_knowledge",
+    description:
+      "Search the Smart-Sync knowledge base for factual fund data: NAV, expense ratio, returns, exit load, AUM, holdings. ALWAYS call this for fund/NAV/fee/return questions before answering.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        query: {
+          type: "STRING",
+          description: "The user's fund question verbatim or a concise search query",
+        },
+      },
+      required: ["query"],
+    },
+  },
   {
     name: "get_preparation_docs",
     description:
@@ -134,6 +152,53 @@ export async function executeVoiceToolCall(
 ): Promise<VoiceToolCallResult> {
   try {
     switch (name) {
+      case "query_fund_knowledge": {
+        const query = String(args.query ?? "").trim();
+        if (!query) {
+          return { ok: false, toolName: name, output: { found: false }, error: "query is required" };
+        }
+        const identification = await identifyFunds(query);
+        let retrieved = await retrieveTopK(query, {
+          k: 6,
+          fundIds: identification.fundIds.length > 0 ? identification.fundIds : undefined,
+        });
+        if (retrieved.length === 0 && identification.fundIds.length > 0) {
+          retrieved = await retrieveTopK(query, { k: 6 });
+        }
+        const fundsResp = await getFunds();
+        const funds = fundsResp.data ?? [];
+        const matchedFunds = identification.fundIds.length > 0
+          ? funds.filter((f) => identification.fundIds.includes(f.fundId))
+          : funds.slice(0, 3);
+        return {
+          ok: true,
+          toolName: name,
+          output: {
+            found: retrieved.length > 0 || matchedFunds.length > 0,
+            query,
+            fundsIdentified: identification.fundIds,
+            navSnapshot: matchedFunds.map((f) => ({
+              fundId: f.fundId,
+              name: f.name,
+              symbol: f.symbol,
+              nav: f.nav,
+              navChange: f.navChange,
+              navChangePercent: f.navChangePercent,
+              category: f.category,
+              source: f.sourceUrls?.[0] ?? "",
+            })),
+            chunks: retrieved.map((r) => ({
+              fundId: r.chunk.fundId,
+              fundName: r.chunk.fundName,
+              chunkType: r.chunk.chunkType,
+              text: r.chunk.content.slice(0, 600),
+              source: r.chunk.sourceUrls?.[0] ?? "",
+              score: r.score,
+            })),
+          },
+        };
+      }
+
       case "get_preparation_docs": {
         const topic = String(args.topic ?? "") as TopicType;
         const query = args.query !== undefined ? String(args.query) : undefined;

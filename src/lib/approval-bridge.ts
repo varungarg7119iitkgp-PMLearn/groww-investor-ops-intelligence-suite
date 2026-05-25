@@ -7,6 +7,7 @@
  * This bridges Pillar B (Voice Agent) → Pillar C (Director Ops HITL Queue).
  */
 
+import { getSupabaseAdminClient } from "@/lib/supabase-admin";
 import { getSupabaseClient } from "@/lib/supabase";
 import { getLatestPulse } from "@/lib/data";
 import { generateEmailDraft } from "@/lib/email-draft";
@@ -50,7 +51,13 @@ export async function createApprovalItem(input: CreateApprovalInput): Promise<{ 
     marketContextSnippet: marketContext ?? undefined,
   });
 
-  const supabase = getSupabaseClient();
+  const supabase = (() => {
+    try {
+      return getSupabaseAdminClient();
+    } catch {
+      return getSupabaseClient();
+    }
+  })();
   const { data, error } = await supabase
     .from("approval_queue")
     .insert({

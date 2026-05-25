@@ -46,9 +46,9 @@ import {
   classifyIntent,
   classifyTopic,
   getNextState,
-  generateMockSlots,
   getRephraseForState,
 } from "@/lib/state-machine";
+import { getAvailableSlots } from "@/tools/calendar";
 import { buildVoiceSystemPrompt } from "@/lib/prompts";
 import {
   chat as geminiChat,
@@ -191,10 +191,14 @@ export async function POST(req: Request) {
   }
 
   /* ── 4. Build voice system prompt ────────────────────────── */
-  const proposedSlots =
-    nextStep === "booking_intent" && topic && !state.bookingCode
-      ? generateMockSlots()
-      : undefined;
+  let proposedSlots: string[] | undefined;
+  if (nextStep === "booking_intent" && topic && !state.bookingCode) {
+    try {
+      proposedSlots = await getAvailableSlots(2);
+    } catch {
+      proposedSlots = undefined;
+    }
+  }
 
   const systemPrompt = buildVoiceSystemPrompt({
     step: nextStep,

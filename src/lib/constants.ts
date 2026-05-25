@@ -18,6 +18,13 @@
  */
 export const GROWW_APP_ID = "0e648d69-be08-4be2-8f19-fe9b42addd6a";
 
+/** Groww app identifiers for Play Store / App Store scrapers (M2 PM-Pulsator). */
+export const GROWW_APP = {
+  name:            "Groww",
+  androidBundleId: "com.nextbillion.groww",
+  iosBundleId:     "1404871703",
+} as const;
+
 /** Hard ceiling for review batch inserts (Supabase row-size + PG payload cap). */
 export const REVIEW_INSERT_BATCH_SIZE = 200;
 
