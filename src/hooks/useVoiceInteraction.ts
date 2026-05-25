@@ -65,6 +65,15 @@ export interface UseVoiceInteractionOptions {
   onTranscript: (transcript: string) => Promise<{ assistantText: string } | void> | { assistantText: string } | void;
 }
 
+export interface SpeakOptions {
+  /** Do not surface browser autoplay-block errors (expected before first tap). */
+  suppressAutoplayError?: boolean;
+}
+
+function isAutoplayBlockedError(message: string): boolean {
+  return /didn't interact|autoplay|NotAllowedError/i.test(message);
+}
+
 export interface UseVoiceInteractionResult {
   /** Current orb state — drive AIOrb with this */
   orbState: AgentVisualState;
@@ -83,7 +92,7 @@ export interface UseVoiceInteractionResult {
   /** Stop recording — STT → caller's onTranscript → optional TTS */
   stopListening: () => Promise<void>;
   /** Speak text via TTS (used by parent for theme-aware greetings) */
-  speak: (text: string) => Promise<void>;
+  speak: (text: string, options?: SpeakOptions) => Promise<boolean>;
   /** Hard reset to IDLE */
   reset: () => void;
 }
@@ -321,8 +330,8 @@ export function useVoiceInteraction(
    *  - If the previous turn's audio is still playing, stop it first.
    */
   const speak = useCallback(
-    async (text: string) => {
-      if (!text || text.trim().length === 0) return;
+    async (text: string, options?: SpeakOptions): Promise<boolean> => {
+      if (!text || text.trim().length === 0) return false;
 
       /* Stop any currently-playing TTS so a fast 2nd reply doesn't
        * stack on top of the previous one. */
@@ -345,13 +354,13 @@ export function useVoiceInteraction(
           const errBody = await res.text().catch(() => "");
           setLastError(`TTS failed (${res.status}): ${errBody.slice(0, 160)}`);
           setOrbState("IDLE");
-          return;
+          return false;
         }
         const audioBlob = await res.blob();
         if (!audioBlob || audioBlob.size === 0) {
           setLastError("TTS returned an empty audio body");
           setOrbState("IDLE");
-          return;
+          return false;
         }
         const url = URL.createObjectURL(audioBlob);
 
@@ -362,7 +371,7 @@ export function useVoiceInteraction(
         audio.src = url;
         currentAudioRef.current = audio;
 
-        await new Promise<void>((resolve) => {
+        return await new Promise<boolean>((resolve) => {
           let settled = false;
           const finish = (errMsg?: string) => {
             if (settled) return;
@@ -373,21 +382,25 @@ export function useVoiceInteraction(
             }
             if (errMsg) setLastError(errMsg);
             setOrbState("IDLE");
-            resolve();
+            resolve(!errMsg);
           };
           audio.onended = () => finish();
           audio.onerror = () => finish("TTS audio decode / playback error");
 
-          /* play() returns a Promise that rejects when autoplay is
-           * blocked. We bubble that up as a clear error string. */
+          /* play() rejects when autoplay is blocked (no prior user gesture). */
           audio.play().catch((err) => {
             const m = err instanceof Error ? err.message : String(err);
+            if (options?.suppressAutoplayError && isAutoplayBlockedError(m)) {
+              finish();
+              return;
+            }
             finish(`audio.play() rejected: ${m}`);
           });
         });
       } catch (err) {
         setLastError(err instanceof Error ? err.message : String(err));
         setOrbState("IDLE");
+        return false;
       }
     },
     [],

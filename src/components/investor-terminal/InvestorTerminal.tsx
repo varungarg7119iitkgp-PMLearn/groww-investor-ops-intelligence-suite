@@ -171,7 +171,9 @@ export function InvestorTerminal() {
   const [prefill,    setPrefill]    = useState("");
 
   /** Refs used to fire the one-time welcome greeting without stale closure */
-  const voiceSpeakRef    = useRef<((text: string) => Promise<void>) | null>(null);
+  const voiceSpeakRef    = useRef<
+    ((text: string, options?: { suppressAutoplayError?: boolean }) => Promise<boolean>) | null
+  >(null);
   const greetingFiredRef = useRef(false);
 
   /* Seed demo chat once if store is empty (Phase 14 persistence) */
@@ -326,23 +328,26 @@ export function InvestorTerminal() {
     const msg =
       `Good ${tod}! I'm Smart Sync, your AI research assistant for Groww's curated mutual funds. ` +
       `Tap me to ask anything by voice, or type your question below.`;
-    /* Swallow autoplay-blocked / TTS-not-configured errors so the UI never
-     * shows a startup error banner. The orb click will retry. */
-    try {
-      await voiceSpeakRef.current?.(msg);
-    } catch {
-      /* ignore */
-    }
-    greetingFiredRef.current = true;
+    const played = await voiceSpeakRef.current?.(msg, { suppressAutoplayError: true });
+    if (played) greetingFiredRef.current = true;
   }, []);
 
-  /* Welcome greeting — auto-play ~2 s after mount (user expects on load).
-   * Orb/mic click retries if autoplay was blocked before first attempt. */
+  /* Try greeting on load for returning users with media-engagement.
+   * Browsers block autoplay for first-time/incognito visitors — no error shown;
+   * first tap (orb, mic, or anywhere) retries via the gesture listener below. */
   useEffect(() => {
     const timer = setTimeout(() => {
       void speakWelcomeGreeting();
     }, 2000);
     return () => clearTimeout(timer);
+  }, [speakWelcomeGreeting]);
+
+  useEffect(() => {
+    const onFirstGesture = () => {
+      void speakWelcomeGreeting();
+    };
+    document.addEventListener("pointerdown", onFirstGesture, { once: true });
+    return () => document.removeEventListener("pointerdown", onFirstGesture);
   }, [speakWelcomeGreeting]);
 
   /* Cleanup voice resources only on unmount — NOT on every render.
