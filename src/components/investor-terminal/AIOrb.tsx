@@ -106,7 +106,7 @@ function VoiceWave({ cx, cy, orbRadius, audioLevel, state }: VoiceWaveProps) {
   const isActive  = state === "LISTENING" || state === "SPEAKING";
   const isThink   = state === "THINKING";
   const maxH      = isActive ? WAVE_ACTIVE_MAX_H : WAVE_IDLE_MAX_H;
-  const baseAlpha = isThink ? 0.08 : isActive ? 0.65 : 0.25;
+  const baseAlpha = isThink ? 0.08 : isActive ? 0.65 : 0.42;
 
   return (
     <g aria-hidden="true" data-testid="voice-wave">
@@ -187,17 +187,17 @@ interface PlasmaRipplesProps {
 }
 
 const RIPPLE_PARAMS = [
-  { delay: 0.0,  duration: 2.4, startScale: 1.04, endScale: 2.10, strokeW: 1.4, opacityPeak: 0.55 },
-  { delay: 0.48, duration: 2.4, startScale: 1.06, endScale: 2.00, strokeW: 0.8, opacityPeak: 0.38 },
-  { delay: 0.96, duration: 2.4, startScale: 1.03, endScale: 1.95, strokeW: 1.2, opacityPeak: 0.45 },
-  { delay: 1.44, duration: 2.4, startScale: 1.07, endScale: 2.15, strokeW: 0.7, opacityPeak: 0.30 },
-  { delay: 1.92, duration: 2.4, startScale: 1.05, endScale: 2.05, strokeW: 1.0, opacityPeak: 0.40 },
+  { delay: 0.0,  duration: 2.2, startScale: 1.04, endScale: 2.10, strokeW: 1.6, opacityPeak: 0.70 },
+  { delay: 0.44, duration: 2.2, startScale: 1.06, endScale: 2.00, strokeW: 1.0, opacityPeak: 0.52 },
+  { delay: 0.88, duration: 2.2, startScale: 1.03, endScale: 1.92, strokeW: 1.4, opacityPeak: 0.60 },
+  { delay: 1.32, duration: 2.2, startScale: 1.07, endScale: 2.15, strokeW: 0.8, opacityPeak: 0.44 },
+  { delay: 1.76, duration: 2.2, startScale: 1.05, endScale: 2.05, strokeW: 1.2, opacityPeak: 0.55 },
 ];
 
 function PlasmaRipples({ cx, cy, orbRadius, state }: PlasmaRipplesProps) {
   const isThink = state === "THINKING";
-  // Scale down ripple opacity in thinking state (internal focus look)
-  const opacityMult = isThink ? 0.3 : 1.0;
+  // Boost idle ripples to stay lively; dampen in thinking state
+  const opacityMult = isThink ? 0.3 : state === "IDLE" ? 1.15 : 1.0;
 
   /* Defer ripple mount until after the client has hydrated.
    * Framer Motion animates the SVG `r` attribute, which can race with
@@ -676,14 +676,14 @@ export function AIOrb({
             fill="url(#orb-core-grad)"
             animate={
               state === "IDLE"
-                ? { scale: [1, 1.014, 1] }
+                ? { scale: [1, 1.032, 1] }
                 : state === "SPEAKING"
                 ? { scale: [0.9, 1.1, 0.9] }
                 : { scale: 1 }
             }
             transition={
               state === "IDLE"
-                ? { duration: 3, repeat: Infinity, ease: "easeInOut" }
+                ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
                 : state === "SPEAKING"
                 ? { duration: 0.8, repeat: Infinity, ease: "easeInOut" }
                 : { duration: 0.4, ease: EASE }
@@ -697,6 +697,99 @@ export function AIOrb({
             orbRadius={orbRadius}
             clipId={CLIP_ID}
           />
+
+          {/* ── Microphone watermark — signals the orb is tap-to-talk ── */}
+          {state === "LISTENING" ? (
+            /* Blink rapidly while recording */
+            <motion.g
+              aria-hidden="true"
+              clipPath={`url(#${CLIP_ID})`}
+              animate={{ opacity: [0.9, 0.2, 0.9] }}
+              transition={{ duration: 0.55, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <rect
+                x={svgCx - orbRadius * 0.12}
+                y={svgCy - orbRadius * 0.28}
+                width={orbRadius * 0.24}
+                height={orbRadius * 0.30}
+                rx={orbRadius * 0.12}
+                fill="rgba(0,229,255,1)"
+              />
+              <path
+                d={`M ${svgCx - orbRadius * 0.20} ${svgCy + orbRadius * 0.04}
+                    Q ${svgCx - orbRadius * 0.20} ${svgCy + orbRadius * 0.20}
+                      ${svgCx} ${svgCy + orbRadius * 0.20}
+                    Q ${svgCx + orbRadius * 0.20} ${svgCy + orbRadius * 0.20}
+                      ${svgCx + orbRadius * 0.20} ${svgCy + orbRadius * 0.04}`}
+                fill="none"
+                stroke="rgba(0,229,255,1)"
+                strokeWidth={orbRadius * 0.05}
+                strokeLinecap="round"
+              />
+              <line
+                x1={svgCx}
+                y1={svgCy + orbRadius * 0.20}
+                x2={svgCx}
+                y2={svgCy + orbRadius * 0.28}
+                stroke="rgba(0,229,255,1)"
+                strokeWidth={orbRadius * 0.05}
+                strokeLinecap="round"
+              />
+              <line
+                x1={svgCx - orbRadius * 0.14}
+                y1={svgCy + orbRadius * 0.28}
+                x2={svgCx + orbRadius * 0.14}
+                y2={svgCy + orbRadius * 0.28}
+                stroke="rgba(0,229,255,1)"
+                strokeWidth={orbRadius * 0.05}
+                strokeLinecap="round"
+              />
+            </motion.g>
+          ) : (
+            <g
+              aria-hidden="true"
+              clipPath={`url(#${CLIP_ID})`}
+              opacity={state === "IDLE" ? 0.18 : 0.06}
+            >
+              <rect
+                x={svgCx - orbRadius * 0.12}
+                y={svgCy - orbRadius * 0.28}
+                width={orbRadius * 0.24}
+                height={orbRadius * 0.30}
+                rx={orbRadius * 0.12}
+                fill="white"
+              />
+              <path
+                d={`M ${svgCx - orbRadius * 0.20} ${svgCy + orbRadius * 0.04}
+                    Q ${svgCx - orbRadius * 0.20} ${svgCy + orbRadius * 0.20}
+                      ${svgCx} ${svgCy + orbRadius * 0.20}
+                    Q ${svgCx + orbRadius * 0.20} ${svgCy + orbRadius * 0.20}
+                      ${svgCx + orbRadius * 0.20} ${svgCy + orbRadius * 0.04}`}
+                fill="none"
+                stroke="white"
+                strokeWidth={orbRadius * 0.05}
+                strokeLinecap="round"
+              />
+              <line
+                x1={svgCx}
+                y1={svgCy + orbRadius * 0.20}
+                x2={svgCx}
+                y2={svgCy + orbRadius * 0.28}
+                stroke="white"
+                strokeWidth={orbRadius * 0.05}
+                strokeLinecap="round"
+              />
+              <line
+                x1={svgCx - orbRadius * 0.14}
+                y1={svgCy + orbRadius * 0.28}
+                x2={svgCx + orbRadius * 0.14}
+                y2={svgCy + orbRadius * 0.28}
+                stroke="white"
+                strokeWidth={orbRadius * 0.05}
+                strokeLinecap="round"
+              />
+            </g>
+          )}
 
           {/* Inner glass highlight */}
           <circle
@@ -724,9 +817,11 @@ export function AIOrb({
 
         {/* ════════════════════════════════════
             LAYER 8 — Amber HUD Brackets
+            Only shown while SPEAKING (not in IDLE — avoids permanent
+            yellow target clutter when the pulse theme is always set)
             ════════════════════════════════════ */}
         <AnimatePresence>
-          {hasContext && themeContext && (
+          {hasContext && themeContext && state !== "IDLE" && (
             <HUDBrackets
               key="hud"
               cx={svgCx}

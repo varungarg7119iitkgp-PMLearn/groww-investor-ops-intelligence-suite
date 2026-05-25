@@ -20,6 +20,16 @@ import type { AgentVisualState } from "@/types";
 
 const RECORDING_MIME = "audio/webm;codecs=opus";
 
+/** Returns the SpeechRecognition constructor when the browser supports it. */
+function getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as typeof window & {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
 export interface UseVoiceInteractionOptions {
   /** Called with the recognized transcript after STT completes */
   onTranscript: (transcript: string) => Promise<{ assistantText: string } | void> | { assistantText: string } | void;
@@ -60,6 +70,12 @@ export function useVoiceInteraction(
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  /** Web Speech API recognition instance (primary STT when available) */
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  /** Accumulated WSA transcript (updated on every interim result) */
+  const wsaTranscriptRef = useRef<string>("");
+  /** True when WSA is the active listening mode */
+  const isWsaModeRef = useRef(false);
   /** Current TTS playback element. We deliberately create a FRESH Audio
    *  object on every speak() call so MediaElementAudioSourceNode never
    *  hits its "one source node per element" limitation. */
@@ -99,6 +115,47 @@ export function useVoiceInteraction(
   /* ── startListening ───────────────────────────────────────── */
   const startListening = useCallback(async () => {
     setLastError(null);
+    wsaTranscriptRef.current = "";
+    isWsaModeRef.current = false;
+
+    /* Primary path: Web Speech API (Chrome/Edge/Safari — no API key needed) */
+    const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+    if (SpeechRecognitionCtor) {
+      try {
+        const recognition = new SpeechRecognitionCtor();
+        recognition.lang = "en-IN";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        recognition.onresult = (event) => {
+          let finalText = "";
+          for (let i = 0; i < event.results.length; i++) {
+            finalText += event.results[i][0].transcript + " ";
+          }
+          wsaTranscriptRef.current = finalText.trim();
+        };
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+          if (event.error !== "aborted" && event.error !== "no-speech") {
+            setLastError(`Speech recognition: ${event.error}`);
+          }
+        };
+        recognitionRef.current = recognition;
+        recognition.start();
+        isWsaModeRef.current = true;
+        setIsListening(true);
+        setOrbState("LISTENING");
+
+        /* Also acquire mic for amplitude display on the orb */
+        const stream = await acquireMic().catch(() => null);
+        if (stream) connectStream(stream);
+        return;
+      } catch {
+        recognitionRef.current = null;
+        isWsaModeRef.current = false;
+      }
+    }
+
+    /* Fallback path: MediaRecorder → ElevenLabs STT */
     const stream = await acquireMic();
     if (!stream) return;
 
@@ -120,6 +177,45 @@ export function useVoiceInteraction(
 
   /* ── stopListening: STT → onTranscript → speak ─────────────── */
   const stopListening = useCallback(async () => {
+
+    /* ── Web Speech API path ── */
+    if (isWsaModeRef.current && recognitionRef.current) {
+      const recognition = recognitionRef.current;
+      recognitionRef.current = null;
+      isWsaModeRef.current = false;
+
+      /* Stop WSA — let it finalise any pending result */
+      try { recognition.stop(); } catch { /* noop */ }
+      setIsListening(false);
+      setOrbState("THINKING");
+      disconnect();
+
+      /* Small delay so the browser can fire the final onresult */
+      await new Promise<void>((r) => setTimeout(r, 200));
+      const transcript = wsaTranscriptRef.current.trim();
+      wsaTranscriptRef.current = "";
+
+      if (!transcript) {
+        setLastError("No speech detected — speak clearly and try again");
+        setOrbState("IDLE");
+        return;
+      }
+
+      try {
+        const result = await opts.onTranscript(transcript);
+        if (result && "assistantText" in result && result.assistantText) {
+          await speak(result.assistantText);
+        } else {
+          setOrbState("IDLE");
+        }
+      } catch (err) {
+        setLastError(err instanceof Error ? err.message : String(err));
+        setOrbState("IDLE");
+      }
+      return;
+    }
+
+    /* ── MediaRecorder + ElevenLabs path (fallback) ── */
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") {
       setIsListening(false);
@@ -137,13 +233,13 @@ export function useVoiceInteraction(
         chunksRef.current = [];
 
         try {
-          /* 1. STT */
+          /* 1. STT via ElevenLabs */
           const form = new FormData();
           form.append("audio", blob, "input.webm");
           const sttRes = await fetch("/api/voice/stt", { method: "POST", body: form });
           if (!sttRes.ok) {
             const err = await sttRes.text();
-            setLastError(`STT failed: ${err.slice(0, 200)}`);
+            setLastError(`STT error (${sttRes.status}): ${err.slice(0, 160)}`);
             setOrbState("IDLE");
             resolve();
             return;
@@ -151,7 +247,7 @@ export function useVoiceInteraction(
           const sttJson = (await sttRes.json()) as { transcript?: string };
           const transcript = (sttJson.transcript ?? "").trim();
           if (!transcript) {
-            setLastError("Empty transcript — try again");
+            setLastError("Empty transcript — speak closer to mic and try again");
             setOrbState("IDLE");
             resolve();
             return;
@@ -160,7 +256,7 @@ export function useVoiceInteraction(
           /* 2. Hand off to caller */
           const result = await opts.onTranscript(transcript);
 
-          /* 3. If caller returned text, speak it */
+          /* 3. Speak the response if returned */
           if (result && "assistantText" in result && result.assistantText) {
             await speak(result.assistantText);
           } else {

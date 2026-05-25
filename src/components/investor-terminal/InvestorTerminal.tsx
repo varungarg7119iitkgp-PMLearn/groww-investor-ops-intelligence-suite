@@ -21,7 +21,8 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import {
   MarqueeTicker,
   AIOrb,
@@ -30,11 +31,12 @@ import {
   KnowledgeHubHeader,
   NewsRail,
 } from "@/components/investor-terminal";
-import { ScanningLine, OpsAccessButton } from "@/components/shared";
+import { ScanningLine } from "@/components/shared";
 import { createChatMessage } from "@/types";
 import type { ChatMessage, AgentVisualState, Citation } from "@/types";
 import { useVoiceInteraction } from "@/hooks/useVoiceInteraction";
 import { useConversation } from "@/hooks/useConversation";
+import { useUIStore } from "@/lib/store";
 
 /** Response envelope from POST /api/chat (Phase 8). */
 interface ChatApiResponse {
@@ -149,16 +151,45 @@ async function safeJson(res: Response): Promise<{ error?: string } | undefined> 
 }
 
 export function InvestorTerminal() {
-  const [messages,   setMessages]   = useState<ChatMessage[]>(INIT_MESSAGES);
-  const [bulletMap,  setBulletMap]  = useState(INIT_BULLETS);
-  const [citeMap,    setCiteMap]    = useState(INIT_CITES);
-  const [lastUpdatedMap, setLastUpdatedMap] = useState<Record<string, string>>({});
+  const chatMessages      = useUIStore((s) => s.chatMessages);
+  const addChatMessage    = useUIStore((s) => s.addChatMessage);
+  const setChatMessages   = useUIStore((s) => s.setChatMessages);
+  const chatMeta          = useUIStore((s) => s.investorChatMeta);
+  const setInvestorChatMeta = useUIStore((s) => s.setInvestorChatMeta);
+  const topTheme          = useUIStore((s) => s.topTheme);
+  const bookingStatuses   = useUIStore((s) => s.bookingStatuses);
+  const voiceSessionPaused = useUIStore((s) => s.voiceSessionPaused);
+  const voiceWasActiveBeforePause = useUIStore((s) => s.voiceWasActiveBeforePause);
+  const setVoiceSessionPaused = useUIStore((s) => s.setVoiceSessionPaused);
+  const setIsVoiceActive  = useUIStore((s) => s.setIsVoiceActive);
+
   const [orbState,   setOrbState]   = useState<AgentVisualState>("IDLE");
   const [isTyping,   setIsTyping]   = useState(false);
   const [isMicActive, setIsMicActive] = useState(false);
   const [scanVisible, setScanVisible] = useState(false);
   const [orbStateIdx, setOrbStateIdx] = useState(0);
   const [prefill,    setPrefill]    = useState("");
+
+  /** Refs used to fire the one-time welcome greeting without stale closure */
+  const voiceSpeakRef    = useRef<((text: string) => Promise<void>) | null>(null);
+  const greetingFiredRef = useRef(false);
+
+  /* Seed demo chat once if store is empty (Phase 14 persistence) */
+  useEffect(() => {
+    if (chatMessages.length === 0) {
+      setChatMessages(INIT_MESSAGES);
+      setInvestorChatMeta({
+        bulletsByMessageId:     INIT_BULLETS,
+        citationsByMessageId:   INIT_CITES,
+        lastUpdatedByMessageId: {},
+      });
+    }
+  }, [chatMessages.length, setChatMessages, setInvestorChatMeta]);
+
+  const messages = chatMessages.length > 0 ? chatMessages : INIT_MESSAGES;
+  const bulletMap = chatMeta.bulletsByMessageId;
+  const citeMap = chatMeta.citationsByMessageId;
+  const lastUpdatedMap = chatMeta.lastUpdatedByMessageId;
 
   const cycleOrb = useCallback(() => {
     setOrbStateIdx((prev) => {
@@ -175,7 +206,7 @@ export function InvestorTerminal() {
   const handleSubmit = useCallback(
     async (text: string) => {
       const userMsg = createChatMessage("user", text);
-      setMessages((prev) => [...prev, userMsg]);
+      addChatMessage(userMsg);
       setIsTyping(true);
       setOrbState("THINKING");
 
@@ -183,60 +214,61 @@ export function InvestorTerminal() {
         const res = await fetch("/api/chat", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ query: text }),
+          body:    JSON.stringify({ query: text, bookingStatuses }),
         });
 
         if (!res.ok) {
-          /* Server-side error path — surface a deterministic 6-bullet
-           * notice rather than a raw error string. */
           const errBody = await safeJson(res);
           const errMsg = errBody?.error ?? `HTTP ${res.status}`;
           const agentMsg = createChatMessage(
             "assistant",
             "Smart_Sync encountered an issue while processing your query.",
           );
-          setMessages((prev) => [...prev, agentMsg]);
-          setBulletMap((prev) => ({
-            ...prev,
-            [agentMsg.id]: [
-              "The Smart-Sync orchestrator returned an error.",
-              `Status: ${res.status}. Detail: ${String(errMsg).slice(0, 80)}.`,
-              "This usually indicates a transient backend issue (Gemini or Supabase).",
-              "No facts were generated — to avoid hallucination, no bullets are shown.",
-              "Please retry the query in a few seconds.",
-              "If the issue persists, contact the Director Ops team.",
-            ],
-          }));
-          setCiteMap((prev) => ({ ...prev, [agentMsg.id]: [] }));
+          addChatMessage(agentMsg);
+          setInvestorChatMeta({
+            bulletsByMessageId: {
+              [agentMsg.id]: [
+                "The Smart-Sync orchestrator returned an error.",
+                `Status: ${res.status}. Detail: ${String(errMsg).slice(0, 80)}.`,
+                "This usually indicates a transient backend issue (Gemini or Supabase).",
+                "No facts were generated — to avoid hallucination, no bullets are shown.",
+                "Please retry the query in a few seconds.",
+                "If the issue persists, contact the Director Ops team.",
+              ],
+            },
+            citationsByMessageId: { [agentMsg.id]: [] },
+          });
           return;
         }
 
         const data = (await res.json()) as ChatApiResponse;
         const agentMsg = createChatMessage("assistant", data.answer.summary);
-        setMessages((prev) => [...prev, agentMsg]);
-        setBulletMap((prev) => ({ ...prev, [agentMsg.id]: data.answer.bullets }));
-        setCiteMap((prev) => ({ ...prev, [agentMsg.id]: data.answer.citations }));
-        setLastUpdatedMap((prev) => ({ ...prev, [agentMsg.id]: data.meta.lastUpdated }));
+        addChatMessage(agentMsg);
+        setInvestorChatMeta({
+          bulletsByMessageId:     { [agentMsg.id]: data.answer.bullets },
+          citationsByMessageId:   { [agentMsg.id]: data.answer.citations },
+          lastUpdatedByMessageId: { [agentMsg.id]: data.meta.lastUpdated },
+        });
       } catch (err) {
-        /* Network or JSON-parse failure */
         const agentMsg = createChatMessage(
           "assistant",
           "Smart_Sync could not reach the Knowledge Base.",
         );
         const detail = err instanceof Error ? err.message : String(err);
-        setMessages((prev) => [...prev, agentMsg]);
-        setBulletMap((prev) => ({
-          ...prev,
-          [agentMsg.id]: [
-            "Network request to /api/chat failed.",
-            `Detail: ${detail.slice(0, 80)}.`,
-            "Smart_Sync is grounded — no fallback content is generated to prevent hallucination.",
-            "Please check your network connection and retry.",
-            "If you are running locally, verify `npm run dev` is active.",
-            "Smart_Sync will resume normal operation when the API is reachable.",
-          ],
-        }));
-        setCiteMap((prev) => ({ ...prev, [agentMsg.id]: [] }));
+        addChatMessage(agentMsg);
+        setInvestorChatMeta({
+          bulletsByMessageId: {
+            [agentMsg.id]: [
+              "Network request to /api/chat failed.",
+              `Detail: ${detail.slice(0, 80)}.`,
+              "Smart_Sync is grounded — no fallback content is generated to prevent hallucination.",
+              "Please check your network connection and retry.",
+              "If you are running locally, verify `npm run dev` is active.",
+              "Smart_Sync will resume normal operation when the API is reachable.",
+            ],
+          },
+          citationsByMessageId: { [agentMsg.id]: [] },
+        });
       } finally {
         setIsTyping(false);
         setOrbState("IDLE");
@@ -244,7 +276,7 @@ export function InvestorTerminal() {
         setPrefill("");
       }
     },
-    [],
+    [addChatMessage, bookingStatuses, setInvestorChatMeta],
   );
 
   /* ─── PHASE 11: Voice loop integration ─────────────────────── */
@@ -252,65 +284,87 @@ export function InvestorTerminal() {
 
   const voice = useVoiceInteraction({
     onTranscript: async (transcript) => {
-      /* Push the user transcript into the chat ribbon */
       const userMsg = createChatMessage("user", transcript);
-      setMessages((prev) => [...prev, userMsg]);
+      addChatMessage(userMsg);
       setIsTyping(true);
+      setIsVoiceActive(true);
 
-      /* Call /api/voice/converse via the conversation hook */
       const turn = await conversation.send(transcript);
       setIsTyping(false);
 
       if (!turn) {
-        setMessages((prev) => [
-          ...prev,
+        addChatMessage(
           createChatMessage(
             "assistant",
-            "Sorry — voice service hiccup. Please try again or use text.",
+            "Voice unavailable. Type your questions below.",
           ),
-        ]);
+        );
+        setIsVoiceActive(false);
         return;
       }
 
-      /* Push assistant response */
       const agentMsg = createChatMessage("assistant", turn.assistantText);
-      setMessages((prev) => [...prev, agentMsg]);
+      addChatMessage(agentMsg);
       setScanVisible(true);
+      setIsVoiceActive(false);
+      setVoiceSessionPaused(false);
 
-      /* Return text so the hook can run TTS */
       return { assistantText: turn.assistantText };
     },
   });
 
-  /* Mic toggle now routes to voice loop. If mic is active, stop
-   * recording (triggers STT→converse→TTS). Otherwise start. */
+  /* Keep the speak ref current so the one-time greeting effect below
+   * can call the latest version without it as a dependency. */
+  useEffect(() => {
+    voiceSpeakRef.current = voice.speak;
+  });
+
+  /* ── Welcome greeting — speaks once on first mount via TTS ──
+   * Fires 2 s after mount to let the page settle and avoid clashing
+   * with browser autoplay policies (works after user first visits).
+   * Gracefully no-ops if ElevenLabs key is absent or autoplay blocked.
+   */
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (greetingFiredRef.current) return;
+      greetingFiredRef.current = true;
+      const h = new Date().getHours();
+      const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+      const msg =
+        `Good ${tod}! I'm Smart Sync, your AI research assistant for Groww's curated mutual funds. ` +
+        `Tap me to ask anything by voice, or type your question below.`;
+      await voiceSpeakRef.current?.(msg);
+    }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — one-time on mount
+
+  useEffect(() => {
+    return () => {
+      voice.reset();
+    };
+  }, [voice]);
+
   const handleMicToggle = useCallback(
     async (active: boolean) => {
       setIsMicActive(active);
+      setIsVoiceActive(active);
+      if (voiceSessionPaused) setVoiceSessionPaused(false);
       if (active) {
         await voice.startListening();
       } else {
         await voice.stopListening();
+        setIsVoiceActive(false);
       }
     },
-    [voice],
+    [voice, voiceSessionPaused, setVoiceSessionPaused, setIsVoiceActive],
   );
 
-  /* Orb click handler — Phase 11 production fix.
-   *
-   * The orb is the primary voice affordance. A click must start/stop
-   * the voice loop (STT → /api/voice/converse → TTS). Previously the
-   * click only cycled visual states for demo, which is why users
-   * reported "Orb STT/TTS not working" in production.
-   *
-   * Behavior:
-   *   IDLE        → start mic (LISTENING)
-   *   LISTENING   → stop mic, run STT pipeline
-   *   THINKING / SPEAKING → ignore (let the current turn finish)
-   *   text-fallback (no mic / permission denied) → cycle visual states */
   const handleOrbClick = useCallback(async () => {
+    if (voiceSessionPaused) setVoiceSessionPaused(false);
     if (voice.isListening) {
       setIsMicActive(false);
+      setIsVoiceActive(false);
       await voice.stopListening();
       return;
     }
@@ -322,8 +376,9 @@ export function InvestorTerminal() {
       return;
     }
     setIsMicActive(true);
+    setIsVoiceActive(true);
     await voice.startListening();
-  }, [voice, cycleOrb]);
+  }, [voice, voiceSessionPaused, setVoiceSessionPaused, setIsVoiceActive, cycleOrb]);
 
   /* Derive orb state from voice hook when voice mode is in use,
    * otherwise fall through to the local text-mode state. */
@@ -350,30 +405,29 @@ export function InvestorTerminal() {
           display:        "flex",
           flexDirection:  "column",
           zIndex:         10,
-          overflowY:      "auto",
+          overflow:       "hidden",
         }}
       >
         {/* ── Ticker bar — pinned at top ── */}
         <MarqueeTicker onItemClick={handleTickerClick} />
 
-        {/* ── Floating right-edge Director Ops CTA (calls store.setActiveMode) ── */}
-        <OpsAccessButton />
-
-        {/* ── Branded Knowledge Hub header ── */}
+        {/* ── Branded Knowledge Hub header + global mode toggle ── */}
         <KnowledgeHubHeader investorName="Investor" fundCount={20} />
 
-        {/* ── Main 75:25 split — Chat column (with centered orb) | News rail ── */}
+        {/* ── Main 75:25 split — Chat column | News rail ── */}
         <div
           style={{
-            flex:           1,
-            display:        "grid",
+            flex:                1,
+            minHeight:           0,
+            display:             "grid",
             gridTemplateColumns: "minmax(0, 3fr) minmax(0, 1fr)",
-            gap:            "24px",
-            padding:        "8px 24px 24px",
-            maxWidth:       "1600px",
-            width:          "100%",
-            margin:         "0 auto",
-            alignItems:     "flex-start",
+            gap:                 "24px",
+            padding:             "8px 24px 0",
+            maxWidth:            "1600px",
+            width:               "100%",
+            margin:              "0 auto",
+            alignItems:          "stretch",
+            overflow:            "hidden",
           }}
         >
           {/* ─────────────── LEFT (75%) ─────────────── */}
@@ -381,21 +435,21 @@ export function InvestorTerminal() {
             style={{
               display:        "flex",
               flexDirection:  "column",
-              alignItems:     "stretch",
-              gap:            "20px",
+              minHeight:      0,
+              height:         "100%",
               width:          "100%",
-              maxWidth:       "100%",
-              margin:         "0 auto",
             }}
             aria-label="Investor Knowledge Hub — main conversation"
           >
-            {/* ── Centered orb cluster ── */}
+            {/* ── Compact orb cluster (fixed height) ── */}
             <div
               style={{
+                flexShrink:     0,
                 display:        "flex",
                 flexDirection:  "column",
                 alignItems:     "center",
-                gap:            "8px",
+                gap:            "2px",
+                paddingBottom:  "4px",
               }}
             >
               <div
@@ -410,11 +464,7 @@ export function InvestorTerminal() {
                     ? `AI Orb — text-fallback (no mic). Current state: ${displayOrbState}. Click to cycle states.`
                     : `AI Orb — current state: ${displayOrbState}. Click to start voice.`
                 }
-                style={{
-                  cursor:       "pointer",
-                  outline:      "none",
-                  marginBottom: "-8px",
-                }}
+                style={{ cursor: "pointer", outline: "none" }}
                 title={
                   voice.isListening
                     ? "Click to stop & send"
@@ -425,119 +475,140 @@ export function InvestorTerminal() {
               >
                 <AIOrb
                   state={displayOrbState}
+                  size={130}
                   audioLevel={
                     displayAudioLevel ||
                     (displayOrbState === "LISTENING" || displayOrbState === "SPEAKING" ? 0.5 : 0)
                   }
                   themeContext={
                     displayOrbState === "IDLE"
-                      ? conversation.state.themeGreeting?.toUpperCase()
-                      : "KYC UPDATES"
+                      ? (topTheme ?? conversation.state.themeGreeting)?.toUpperCase()
+                      : undefined
                   }
                 />
               </div>
 
-              <p
-                style={{
-                  fontFamily:    "var(--font-hud)",
-                  fontSize:      "10px",
-                  color:         "var(--text-tertiary)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  marginTop:     "-4px",
-                }}
-              >
-                {voice.isListening
-                  ? "● listening · click orb again to send"
-                  : voice.orbState === "THINKING"
-                  ? "▣ thinking…"
-                  : voice.orbState === "SPEAKING"
-                  ? "♪ speaking…"
-                  : voice.isTextFallback
-                  ? "text-fallback active · click orb to cycle demo states"
-                  : "click orb to talk · state: " + displayOrbState}
-                {voice.lastError && ` · ${voice.lastError.slice(0, 60)}`}
-              </p>
+              {/* Listening state: animated prominent CTA */}
+              {voice.isListening ? (
+                <motion.p
+                  animate={{ opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 0.9, repeat: Infinity }}
+                  style={{
+                    fontFamily:    "var(--font-hud)",
+                    fontSize:      "11px",
+                    fontWeight:    600,
+                    color:         "rgba(0, 229, 255, 1)",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    margin:        0,
+                    textAlign:     "center",
+                    textShadow:    "0 0 10px rgba(0,229,255,0.6)",
+                  }}
+                >
+                  ● REC · TAP ORB AGAIN TO SUBMIT
+                </motion.p>
+              ) : (
+                <p
+                  style={{
+                    fontFamily:    "var(--font-hud)",
+                    fontSize:      "10px",
+                    color:         voice.lastError
+                      ? "rgba(255,80,80,0.9)"
+                      : "var(--text-tertiary)",
+                    letterSpacing: "0.1em",
+                    textTransform: "uppercase",
+                    margin:        0,
+                    textAlign:     "center",
+                  }}
+                >
+                  {voice.orbState === "THINKING"
+                    ? "▣ processing…"
+                    : voice.orbState === "SPEAKING"
+                    ? "♪ smart sync speaking…"
+                    : voiceSessionPaused && voiceWasActiveBeforePause
+                    ? "⏸ voice session paused · click orb to resume"
+                    : voice.isTextFallback
+                    ? "text-fallback active · click orb to cycle demo states"
+                    : voice.lastError
+                    ? `⚠ ${voice.lastError.slice(0, 70)}`
+                    : topTheme
+                    ? `pulse theme: ${topTheme} · tap orb to talk`
+                    : "tap orb to ask by voice · or type below"}
+                </p>
+              )}
             </div>
 
-            <div style={{ alignSelf: "stretch", width: "100%" }}>
-              <ChatTerminal
-                messages={messages}
-                isTyping={isTyping}
-                bulletsByMessageId={bulletMap}
-                citationsByMessageId={citeMap}
-                lastUpdatedByMessageId={lastUpdatedMap}
-              />
-            </div>
-
-            <div style={{ alignSelf: "stretch", width: "100%" }}>
-              <InputBar
-                onSubmit={handleSubmit}
-                onMicToggle={handleMicToggle}
-                isMicActive={isMicActive}
-                disabled={isTyping}
-                prefillValue={prefill}
-              />
-            </div>
-
-            {/* Book-Appointment teaser */}
-            <div
-              data-testid="booking-coming-soon"
-              style={{
-                alignSelf:      "center",
-                display:        "inline-flex",
-                alignItems:     "center",
-                gap:            "8px",
-                padding:        "6px 14px",
-                borderRadius:   "999px",
-                background:     "rgba(0, 229, 255, 0.04)",
-                border:         "1px dashed rgba(0, 229, 255, 0.3)",
-                fontFamily:     "var(--font-hud)",
-                fontSize:       "10px",
-                letterSpacing:  "0.18em",
-                color:          "var(--color-investor)",
-                opacity:        0.85,
-              }}
-            >
-              <span aria-hidden style={{ fontSize: "12px" }}>📅</span>
-              BOOK ADVISOR APPOINTMENT
-              <span
-                style={{
-                  fontFamily:    "var(--font-hud)",
-                  fontSize:      "9px",
-                  color:         "var(--color-ops)",
-                  background:    "rgba(255, 171, 0, 0.12)",
-                  border:        "1px solid rgba(255, 171, 0, 0.4)",
-                  padding:       "1px 6px",
-                  borderRadius:  "4px",
-                  letterSpacing: "0.1em",
-                }}
-              >
-                PHASE 10–12
-              </span>
-            </div>
-
-            {/* ── Phase status footer ── */}
-            <div
-              style={{
-                alignSelf:     "center",
-                fontFamily:    "var(--font-hud)",
-                fontSize:      "10px",
-                color:         "var(--text-tertiary)",
-                letterSpacing: "0.08em",
-                textAlign:     "center",
-                paddingBottom: "16px",
-                opacity:       0.6,
-              }}
-            >
-              PHASE 8 · LIVE SMART-SYNC RAG · GEMINI + SUPABASE WIRED
-            </div>
+            {/* ── Chat history — fills all remaining height ── */}
+            <ChatTerminal
+              messages={messages}
+              isTyping={isTyping}
+              bulletsByMessageId={bulletMap}
+              citationsByMessageId={citeMap}
+              lastUpdatedByMessageId={lastUpdatedMap}
+              fillHeight
+            />
           </main>
 
           {/* ─────────────── RIGHT (25%) ─────────────── */}
-          <aside style={{ position: "sticky", top: "72px", alignSelf: "flex-start" }}>
-            <NewsRail />
+          <aside
+            style={{
+              minHeight: 0,
+              height:    "100%",
+              display:   "flex",
+              flexDirection: "column",
+            }}
+          >
+            <NewsRail fillHeight />
           </aside>
+        </div>
+
+        {/* ── Sticky bottom input bar — full width ── */}
+        <div
+          style={{
+            flexShrink:       0,
+            background:       "rgba(6, 10, 20, 0.92)",
+            backdropFilter:   "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            borderTop:        "1px solid rgba(0, 229, 255, 0.12)",
+            padding:          "10px 24px 6px",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: "1600px",
+              margin:   "0 auto",
+            }}
+          >
+            <InputBar
+              onSubmit={handleSubmit}
+              onMicToggle={handleMicToggle}
+              onBookingClick={async () => {
+                /* Route booking through /api/voice/converse (has calendar + booking tools)
+                 * rather than /api/chat (RAG-only, flags booking as out-of-scope). */
+                const intent = "I'd like to book an advisor appointment";
+                const userMsg = createChatMessage("user", intent);
+                addChatMessage(userMsg);
+                setIsTyping(true);
+                setOrbState("THINKING");
+                try {
+                  const turn = await conversation.send(intent);
+                  if (turn?.assistantText) {
+                    const agentMsg = createChatMessage("assistant", turn.assistantText);
+                    addChatMessage(agentMsg);
+                    setScanVisible(true);
+                    /* Also speak the booking prompt so the user knows what to do next */
+                    void voice.speak(turn.assistantText);
+                  }
+                } finally {
+                  setIsTyping(false);
+                  setOrbState("IDLE");
+                }
+              }}
+              isMicActive={isMicActive || voice.isListening}
+              disabled={isTyping}
+              prefillValue={prefill}
+            />
+          </div>
         </div>
       </div>
     </>

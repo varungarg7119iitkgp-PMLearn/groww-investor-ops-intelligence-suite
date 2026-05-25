@@ -30,14 +30,12 @@ import type {
 
 /* ────────── Defaults ────────── */
 /**
- * `gemini-2.5-flash-lite` — the lightest 2.5-family model, with a 1M
- * input-token context, JSON output via `responseMimeType`, and the
- * fastest first-token latency in the 2.5 family. The Phase 8 API key
- * is provisioned for this model specifically (per user direction).
- * Heavier reasoning (e.g. LLM-judge) can override via the `model`
- * option in `GenerateOpts`.
+ * `gemini-2.5-flash` — confirmed available and responding on this project's
+ * API key (gemini-2.5-flash-lite hit 20 RPD free-tier cap; gemini-2.0-flash-lite
+ * shows limit:0 on this project). gemini-2.5-flash tracks separately with a
+ * 10 RPM / 250 RPD free-tier quota. Supports JSON, function calling, 1M ctx.
  */
-const DEFAULT_MODEL = "gemini-2.5-flash-lite";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_TEMPERATURE = 0.4;
