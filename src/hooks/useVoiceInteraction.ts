@@ -20,12 +20,42 @@ import type { AgentVisualState } from "@/types";
 
 const RECORDING_MIME = "audio/webm;codecs=opus";
 
+/* ── Minimal Web Speech API types (not always present in TS dom lib) ── */
+interface WSARecognitionResult {
+  readonly isFinal: boolean;
+  readonly length: number;
+  [index: number]: { readonly transcript: string; readonly confidence: number };
+}
+interface WSAResultList {
+  readonly length: number;
+  [index: number]: WSARecognitionResult;
+}
+interface WSAEvent extends Event {
+  readonly results: WSAResultList;
+  readonly resultIndex: number;
+}
+interface WSAErrorEvent extends Event {
+  readonly error: string;
+}
+interface WSARecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives: number;
+  lang: string;
+  onresult: ((ev: WSAEvent) => void) | null;
+  onerror: ((ev: WSAErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+}
+
 /** Returns the SpeechRecognition constructor when the browser supports it. */
-function getSpeechRecognitionCtor(): (new () => SpeechRecognition) | null {
+function getSpeechRecognitionCtor(): (new () => WSARecognition) | null {
   if (typeof window === "undefined") return null;
   const w = window as typeof window & {
-    SpeechRecognition?: new () => SpeechRecognition;
-    webkitSpeechRecognition?: new () => SpeechRecognition;
+    SpeechRecognition?: new () => WSARecognition;
+    webkitSpeechRecognition?: new () => WSARecognition;
   };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
@@ -71,7 +101,7 @@ export function useVoiceInteraction(
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   /** Web Speech API recognition instance (primary STT when available) */
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<WSARecognition | null>(null);
   /** Accumulated WSA transcript (updated on every interim result) */
   const wsaTranscriptRef = useRef<string>("");
   /** True when WSA is the active listening mode */
@@ -134,7 +164,7 @@ export function useVoiceInteraction(
           }
           wsaTranscriptRef.current = finalText.trim();
         };
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        recognition.onerror = (event: WSAErrorEvent) => {
           if (event.error !== "aborted" && event.error !== "no-speech") {
             setLastError(`Speech recognition: ${event.error}`);
           }
